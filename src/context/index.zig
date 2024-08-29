@@ -1,7 +1,7 @@
 const std = @import("std");
 const Parsed = std.json.Parsed;
 
-const Self = @This();
+pub const Self = @This();
 allocator: std.mem.Allocator,
 params: std.StringHashMap([]const u8), // Array of key-value pairs for URL parameters
 query_params: std.StringHashMap([]const u8), // Array of key-value pairs for query parameters

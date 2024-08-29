@@ -140,10 +140,10 @@ pub fn matchRouteParam(path: []const u8, path_to_match: []const u8) !void {
     // const upto_del = path_to_match_iter.next().?;
     // const from_del = path_to_match_iter.next().?;
 
-    while (path_iter.next()) |token| {
+    while (path_iter.next()) |_| {
         const match_token = path_to_match_iter.next();
         if (match_token != null and match_token.?[0] == ':') {
-            std.debug.print("\n Hello {c}\n", .{match_token[0]});
+            std.debug.print("\n Hello {c}\n", .{match_token.?[0]});
         }
         // const eql_slice = mem.eql(token, path_to_match_iter.next().?);
     }

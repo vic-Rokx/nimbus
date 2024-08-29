@@ -70,6 +70,7 @@ pub const Router = struct {
 test "Insert" {
     var trie = try Router.init();
     try trie.addRoute("/users/posts/:name");
-    const isThere = trie.searchRoute("/users/posts");
+    try trie.addRoute("/users/posts");
+    const isThere = trie.searchRoute("/users/posts/vic");
     std.debug.print("\n{any}\n", .{isThere});
 }

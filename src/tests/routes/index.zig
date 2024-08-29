@@ -1,6 +1,6 @@
 const std = @import("std");
 const helpers = @import("../helpers/index.zig");
-const Context = @import("../../tempest/context.zig");
+const Context = @import("../../context/index.zig");
 const User = @import("../models.zig").User;
 const cache = @import("../data/index.zig");
 

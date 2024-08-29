@@ -1,5 +1,5 @@
 const std = @import("std");
-const Context = @import("context.zig");
+const Context = @import("../context/index.zig");
 const helpers = @import("../helpers/index.zig");
 const mem = std.mem;
 const Parsed = std.json.Parsed;
@@ -94,7 +94,7 @@ pub fn addRoute(
 }
 
 pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: Context) !void {
-    var routesResult = self.routes.get(path).?;
+    var routesResult = self.routes.get(path);
     if (routesResult == null) {
         try helpers.matchRouteParam();
     }

@@ -1,5 +1,6 @@
 const std = @import("std");
 const Context = @import("../context/index.zig");
+const Radix = @import("../core/Router.zig");
 const helpers = @import("../helpers/index.zig");
 const mem = std.mem;
 const Parsed = std.json.Parsed;
@@ -8,12 +9,14 @@ const net = std.net;
 
 const Self = @This();
 
+const HandlerFunc = *const fn (*Context) anyerror!void;
+
 pub const Config = struct {
     server_addr: []const u8,
     server_port: u16,
 };
 
-routes: std.StringHashMap(MethodMap(*Context)),
+routes: std.StringHashMap(Radix.Router),
 allocator: mem.Allocator,
 config: Config,
 
@@ -40,8 +43,8 @@ const ContextMap = struct {
 };
 
 pub fn new(config: Config, allocator: mem.Allocator) !Self {
-    const methodsMap = MethodMap(*Context);
-    const routes_map = std.StringHashMap(methodsMap).init(allocator);
+    // const methodsMap = MethodMap(*Context);
+    const routes_map = std.StringHashMap(Radix.Router).init(allocator);
     return Self{
         .config = config,
         .allocator = allocator,
@@ -57,21 +60,24 @@ pub fn addRoute(
     self: *Self,
     comptime path: []const u8,
     comptime method: []const u8,
-    handler: fn (*Context) anyerror!void,
+    handler: HandlerFunc,
 ) !void {
     var params_iter = mem.tokenizeScalar(u8, path, ':');
-    const root_path = params_iter.next().?;
+    // const root_path = params_iter.next().?;
+    // var ctx = try Context.init(self.allocator);
     while (params_iter.next()) |param| {
         print("\n param: {s}", .{param});
+
         // ctx.params
     }
 
-    // var ctx = try Context.init(self.allocator);
     // var ctxMap = ContextMap.init(self.allocator);
 
-    var methodsMap = try MethodMap(*Context).init(self.allocator);
-    try methodsMap.methods.put(method, @ptrCast(&handler));
-    try self.routes.put(root_path, methodsMap);
+    // var methodsMap = try MethodMap(*Context).init(self.allocator);
+    var router = try Radix.Router.init();
+    try router.addRoute(path, handler);
+    // try methodsMap.methods.put(method, @ptrCast(&handler));
+    try self.routes.put(method, router);
 
     // const v = try self.routes.getOrPut(path);
     // if (!v.found_existing) {
@@ -93,17 +99,24 @@ pub fn addRoute(
     return;
 }
 
-pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: Context) !void {
-    var routesResult = self.routes.get(path);
+pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: *Context) !void {
+    var routesResult = self.routes.get(method);
     if (routesResult == null) {
-        try helpers.matchRouteParam();
+        // try helpers.matchRouteParam();
     }
-    const entry = routesResult.methods.get(method);
+    const entry = try routesResult.?.searchRoute(path);
     if (entry == null) {
         return error.MethodNotSupported;
     }
-    const entry_fn: *const fn (Context) anyerror!void = @ptrCast(entry);
-    try entry_fn(ctx);
+    const entry_fn: *const fn (Context) anyerror!void = @ptrCast(entry.?.handler);
+    const param_args = entry.?.param_args;
+
+    for (param_args.items) |param| {
+        std.debug.print("\n param {s}", .{param.param});
+        try ctx.addParam(param.param, param.value);
+    }
+
+    try entry_fn(ctx.*);
     // const httpMethods = self.routes.get(path) orelse return error.NoPath;
     // const func = httpMethods.methods.get(method) orelse return error.NoMethod;
     // try func(ctx);
@@ -195,7 +208,7 @@ pub fn listen(self: *Self) !void {
         var ctx = try Context.init(self.allocator, method, path);
 
         try ctx.setJson(recv_data);
-        try self.callRoute(path, method, ctx);
+        try self.callRoute(path, method, &ctx);
 
         _ = try conn.stream.write(helpers.http200());
 

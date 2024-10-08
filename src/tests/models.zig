@@ -1,5 +1,5 @@
 pub const User = struct {
-    id: ?[]u8,
+    id: ?[]const u8,
     name: []const u8,
     age: usize,
     height: usize,

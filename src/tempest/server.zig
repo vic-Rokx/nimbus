@@ -1,6 +1,6 @@
 const std = @import("std");
 const Context = @import("../context/index.zig");
-const Radix = @import("../core/Router.zig");
+const Radix = @import("../core/Radix.zig");
 const helpers = @import("../helpers/index.zig");
 const mem = std.mem;
 const Parsed = std.json.Parsed;
@@ -20,30 +20,7 @@ routes: std.StringHashMap(Radix.Router),
 allocator: mem.Allocator,
 config: Config,
 
-pub fn MethodMap(comptime T: type) type {
-    return struct {
-        methods: std.StringHashMap(*const fn (*Context) anyerror!void),
-
-        pub fn init(allocator: mem.Allocator) !MethodMap(T) {
-            return MethodMap(T){
-                .methods = std.StringHashMap(*const fn (*Context) anyerror!void).init(allocator),
-            };
-        }
-    };
-}
-
-const ContextMap = struct {
-    contexts: std.StringHashMap(*Context),
-
-    pub fn init(allocator: mem.Allocator) ContextMap {
-        return ContextMap{
-            .contexts = std.StringHashMap(*Context).init(allocator),
-        };
-    }
-};
-
 pub fn new(config: Config, allocator: mem.Allocator) !Self {
-    // const methodsMap = MethodMap(*Context);
     const routes_map = std.StringHashMap(Radix.Router).init(allocator);
     return Self{
         .config = config,
@@ -53,6 +30,11 @@ pub fn new(config: Config, allocator: mem.Allocator) !Self {
 }
 
 pub fn deinit(self: *Self) void {
+    var routes_it = self.routes.valueIterator();
+    while (routes_it.next()) |value| {
+        try value.deinit();
+    }
+
     self.routes.deinit();
 }
 
@@ -62,47 +44,16 @@ pub fn addRoute(
     comptime method: []const u8,
     handler: HandlerFunc,
 ) !void {
-    var params_iter = mem.tokenizeScalar(u8, path, ':');
-    // const root_path = params_iter.next().?;
-    // var ctx = try Context.init(self.allocator);
-    while (params_iter.next()) |param| {
-        print("\n param: {s}", .{param});
-
-        // ctx.params
-    }
-
-    // var ctxMap = ContextMap.init(self.allocator);
-
-    // var methodsMap = try MethodMap(*Context).init(self.allocator);
-    var router = try Radix.Router.init();
+    var router = try Radix.Router.init(self.allocator);
     try router.addRoute(path, handler);
-    // try methodsMap.methods.put(method, @ptrCast(&handler));
     try self.routes.put(method, router);
-
-    // const v = try self.routes.getOrPut(path);
-    // if (!v.found_existing) {
-    // We inserted an entry, specify the new value
-    // This is a conditional in case creating the new value is expensive
-    // const httpMethod = HttpMethod([]const u8);
-    // var methodsMap = std.StringHashMap(*const fn (Contextconst u8)) anyerror!void).init(self.allocator);
-    // try methodsMap.put(method, @ptrCast(&handler));
-    // const httpMethod = MethodMap([]const u8){
-    //     .methods = methodsMap,
-    // };
-    // try self.routes.put(path, httpMethod);
-    // v.value_ptr.* = HttpMethod([]const u8){
-    //     .methods = methodsMap,
-    // };
-    // } else {
-    // try v.value_ptr.*.methods.put(method, @ptrCast(&handler));
-    // }
     return;
 }
 
 pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: *Context) !void {
     var routesResult = self.routes.get(method);
     if (routesResult == null) {
-        // try helpers.matchRouteParam();
+        return error.MethodNotSupported;
     }
     const entry = try routesResult.?.searchRoute(path);
     if (entry == null) {
@@ -112,7 +63,7 @@ pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: *Contex
     const param_args = entry.?.param_args;
 
     for (param_args.items) |param| {
-        std.debug.print("\n param {s}", .{param.param});
+        // std.debug.print("\n param {s}", .{param.param});
         try ctx.addParam(param.param, param.value);
     }
 
@@ -146,7 +97,7 @@ pub fn createContext(self: *Self, comptime T: type, data: T) !Context {
 }
 
 pub fn listen(self: *Self) !void {
-    const color = "\x1b[33m";
+    const color = "\x1b[38;5;57m";
     const red = "\x1b[31m"; // ANSI escape code for red color
     const background = "\x1b[36m"; // ANSI escape code for red color
     const reset = "\x1b[0m"; // ANSI escape code to reset color
@@ -159,7 +110,7 @@ pub fn listen(self: *Self) !void {
         \\    \ \_\   \ \_____\  \ \_\ \ \_\  \ \_\    \ \_____\  \/\_____\    \ \_\
         \\     \/_/    \/_____/   \/_/  \/_/   \/_/     \/_____/   \/_____/     \/_/
     ;
-    std.debug.print("\n{s}{s}{s}\n", .{ color, ascii_art, reset });
+    print("\n{s}{s}{s}\n", .{ color, ascii_art, reset });
 
     const self_addr = try net.Address.resolveIp(self.config.server_addr, self.config.server_port);
     var server = try self_addr.listen(.{ .reuse_address = true });
@@ -205,12 +156,18 @@ pub fn listen(self: *Self) !void {
         const method = try helpers.parseMethod(header.request_line);
         header.method = method;
 
-        var ctx = try Context.init(self.allocator, method, path);
+        var ctx = try Context.init(self.allocator, method, path, conn);
 
         try ctx.setJson(recv_data);
-        try self.callRoute(path, method, &ctx);
+        const callRouteErr = self.callRoute(path, method, &ctx);
+        try ctx.deinit();
 
-        _ = try conn.stream.write(helpers.http200());
+        if (callRouteErr == error.MethodNotSupported) {
+            _ = try conn.stream.write(helpers.http404());
+            conn.stream.close();
+        }
+
+        // _ = try conn.stream.write(helpers.http200());
 
         // print("{s}", .{recv_data});
         // const buf: []u8 = undefined;

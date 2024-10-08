@@ -2,11 +2,7 @@
 
 High performance, extensible, minimalist Zig web framework.
 
-Help and questions: [Github Discussions](https://github.com/labstack/echo/discussions)
-
 ### Feature Overview
-
-
 
 - High Performance: Built in Zig, Tempest offers fast execution and low overhead due to its efficient memory management.
 - Redis inspired Cache Integration: Built-in cache support for session management, caching, and more.
@@ -28,17 +24,6 @@ Help and questions: [Github Discussions](https://github.com/labstack/echo/discus
 - HTTP/2 support
 
 ## Benchmarks
-
-Date: 2020/11/11<br>
-Source: https://github.com/vishr/web-framework-benchmark<br>
-Lower is better!
-
-<img src="https://i.imgur.com/qwPNQbl.png">
-<img src="https://i.imgur.com/s8yKQjx.png">
-
-The benchmarks above were run on an Intel(R) Core(TM) i7-6820HQ CPU @ 2.70GHz
-
-## [Guide](https://echo.labstack.com/guide)
 
 ### Example
 

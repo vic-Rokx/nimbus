@@ -30,7 +30,7 @@ High performance, extensible, minimalist Zig web framework.
 
 ```zig
 const std = @import("std");
-const Nimbus = @import("./tempest/server.zig");
+const Nimbus = @import("./nimbus/server.zig");
 const routes = @import("./tests/routes/index.zig");
 const init = @import("./tests/data/index.zig").init;
 
@@ -46,13 +46,13 @@ pub fn main() !void {
 
     try init(allocator);
 
-    var tempest = try Nimbus.new(config, allocator);
-    defer tempest.deinit();
+    var nimbus = try Nimbus.new(config, allocator);
+    defer nimbus.deinit();
 
-    try tempest.addRoute("/users", "POST", routes.createUser);
-    try tempest.addRoute("/users/:id", "GET", routes.getUserById);
-    try tempest.addRoute("/users/:id", "PATCH", routes.updateUserById);
-    try tempest.listen();
+    try nimbus.addRoute("/users", "POST", routes.createUser);
+    try nimbus.addRoute("/users/:id", "GET", routes.getUserById);
+    try nimbus.addRoute("/users/:id", "PATCH", routes.updateUserById);
+    try nimbus.listen();
 }
 ```
 

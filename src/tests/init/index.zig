@@ -1,4 +1,4 @@
-const NimbusClient = @import("../../nimbus/index.zig");
+const NimbusClient = @import("../../client/index.zig");
 
 pub var cache_client_one: NimbusClient = undefined; // Nullable to track initialization status.
 pub var cache_client_two: NimbusClient = undefined; // Nullable to track initialization status.

@@ -4,7 +4,7 @@ const Context = @import("../../context/index.zig");
 const User = @import("../models.zig").User;
 const nimbus_cache = @import("../init/index.zig");
 const cache = @import("../data/index.zig");
-const NimbusClient = @import("../../nimbus/index.zig");
+const NimbusClient = @import("../../client/index.zig");
 const Cookie = @import("../../core/Cookie.zig");
 
 pub fn pingNimbus(ctx: *Context) !void {

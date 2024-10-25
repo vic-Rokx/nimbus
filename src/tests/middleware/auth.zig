@@ -25,6 +25,13 @@ fn verifyAuth(next: HandlerFunc, ctx: *Context) HandlerFunc {
     return next;
 }
 
+pub fn createCacheSession(next: HandlerFunc, ctx: *Context) !void {
+    var cache_hash: [36]u8 = undefined;
+    helpers.newV4().to_string(&cache_hash);
+    try ctx.putCookie("cache-session", cache_hash);
+    return next;
+}
+
 pub fn signup(ctx: *Context) !void {
     const credentials = try ctx.bind(CredentialsReq);
     var hash = try Auth.generatePassword(credentials.password);

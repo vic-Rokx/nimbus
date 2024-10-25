@@ -12,7 +12,7 @@ pub fn pingNimbus(ctx: *Context) !void {
     _ = try ctx.STRING(resp);
 }
 
-fn readCookie(ctx: *Context) ?Cookie {
+fn readAuthCookie(ctx: *Context) ?Cookie {
     const cookie = ctx.getCookie("Authorization");
     return cookie;
 }
@@ -27,7 +27,7 @@ pub fn setServerCookie(ctx: *Context) !void {
 }
 
 pub fn ping(ctx: *Context) !void {
-    const auth_cookie = readCookie(ctx);
+    const auth_cookie = readAuthCookie(ctx);
     if (auth_cookie == null) {
         var uuid_buf: [36]u8 = undefined;
         helpers.newV4().to_string(&uuid_buf);
@@ -35,7 +35,7 @@ pub fn ping(ctx: *Context) !void {
 
         const expires = std.time.timestamp();
         const cookie = Cookie.init("Authorization", hash, expires);
-        try ctx.setCookie(cookie);
+        try ctx.putCookie(cookie);
     }
     _ = try ctx.STRING("PONG");
 }

@@ -40,10 +40,20 @@ pub fn ping(ctx: *Context) !void {
     _ = try ctx.STRING("PONG");
 }
 
+pub fn set(ctx: *Context) !void {
+    const resp = try nimbus_cache.cache_client_one.set("name", "Vic");
+    _ = try ctx.STRING(resp);
+}
+
 pub fn dllNimbus(ctx: *Context) !void {
     var str_arr = [_][]const u8{ "one", "two", "three" };
     const resp = try nimbus_cache.cache_client_one.lpush(3, "mylist", &str_arr);
     _ = try ctx.STRING(resp);
+}
+
+pub fn dllRangeNimbus(ctx: *Context) !void {
+    try nimbus_cache.cache_client_one.lrange("mylist", "0", "-1");
+    _ = try ctx.STRING("Success");
 }
 
 pub fn dllNimbus_two(ctx: *Context) !void {

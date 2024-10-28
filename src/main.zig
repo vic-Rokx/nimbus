@@ -31,6 +31,8 @@ pub fn createBackendServer_one(port: u16) !void {
     try nimbus.addRoute("/pingnimbus", "POST", routes.pingNimbus, &[_]MiddleFunc{});
     try nimbus.addRoute("/dllpush", "POST", routes.dllNimbus, &[_]MiddleFunc{});
     try nimbus.addRoute("/ping", "POST", routes.ping, &[_]MiddleFunc{authroutes.createCacheSession});
+    try nimbus.addRoute("/set", "POST", routes.set, &[_]MiddleFunc{});
+    try nimbus.addRoute("/dllrange", "POST", routes.dllRangeNimbus, &[_]MiddleFunc{});
     // try nimbus.addRoute("/users/:name/:id", "GET", routes.getUser);
     try nimbus.listen();
 }

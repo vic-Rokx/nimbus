@@ -98,7 +98,7 @@ pub fn echo(self: Self, value: []const u8) ![]const u8 {
     return s;
 }
 
-pub fn set(self: Self, key: []const u8, value: []const u8) !void {
+pub fn set(self: Self, key: []const u8, value: []const u8) ![]const u8 {
     const client_fd = try self.createConn();
     const response = try std.fmt.allocPrint(
         std.heap.c_allocator,
@@ -119,6 +119,10 @@ pub fn set(self: Self, key: []const u8, value: []const u8) !void {
     }
 
     std.debug.print("\nserver response: {s}", .{rbuf[0..nr]});
+
+    const s = try std.heap.c_allocator.alloc(u8, nr);
+    std.mem.copyForwards(u8, s, rbuf[0..nr]);
+    return s;
     // return ClientError.Success;
 }
 

@@ -25,10 +25,12 @@ fn verifyAuth(next: HandlerFunc, ctx: *Context) HandlerFunc {
     return next;
 }
 
-pub fn createCacheSession(next: HandlerFunc, ctx: *Context) !void {
+pub fn createCacheSession(next: HandlerFunc, _: *Context) HandlerFunc {
     var cache_hash: [36]u8 = undefined;
     helpers.newV4().to_string(&cache_hash);
-    try ctx.putCookie("cache-session", cache_hash);
+    const expires = std.time.timestamp();
+    _ = Cookie.init("cache-session", &cache_hash, expires);
+    // try ctx.putCookie(cookie);
     return next;
 }
 

@@ -8,7 +8,7 @@ const Cookie = @import("../core/Cookie.zig");
 pub const json_type = []const u8;
 
 pub const Self = @This();
-allocator: std.mem.Allocator,
+arena: std.mem.Allocator,
 params: std.StringHashMap([]const u8), // Array of key-value pairs for URL parameters
 query_params: std.StringHashMap([]const u8), // Array of key-value pairs for query parameters
 form_params: std.StringHashMap([]const u8), // Array of key-value pairs for form data
@@ -23,21 +23,21 @@ cookie: ?Cookie,
 setValues: std.StringHashMap([]const u8),
 sticky_session: ?[]const u8,
 
-pub fn init(allocator: mem.Allocator, method: []const u8, route: []const u8, conn: net.Server.Connection) !Self {
+pub fn init(arena: *mem.Allocator, method: []const u8, route: []const u8, conn: net.Server.Connection) !Self {
     return Self{
-        .allocator = allocator,
+        .arena = arena.*,
         .method = method,
         .route = route,
-        .params = std.StringHashMap([]const u8).init(allocator),
-        .query_params = std.StringHashMap([]const u8).init(allocator),
-        .form_params = std.StringHashMap([]const u8).init(allocator),
-        .headers = std.StringHashMap([]const u8).init(allocator),
+        .params = std.StringHashMap([]const u8).init(arena.*),
+        .query_params = std.StringHashMap([]const u8).init(arena.*),
+        .form_params = std.StringHashMap([]const u8).init(arena.*),
+        .headers = std.StringHashMap([]const u8).init(arena.*),
         .json_payload = undefined,
         .payload = undefined,
         .conn = conn,
-        .cookies = std.StringHashMap(Cookie).init(allocator),
+        .cookies = std.StringHashMap(Cookie).init(arena.*),
         .cookie = null,
-        .setValues = std.StringHashMap([]const u8).init(allocator),
+        .setValues = std.StringHashMap([]const u8).init(arena.*),
         .sticky_session = null,
     };
 }
@@ -48,34 +48,34 @@ pub fn deinit(self: *Self) !void {
     // Free params
     var it = self.params.iterator();
     while (it.next()) |entry| {
-        self.allocator.destroy(entry.value_ptr);
+        self.arena.destroy(entry.value_ptr);
     }
     self.params.deinit();
 
     // Free query_params
     it = self.query_params.iterator();
     while (it.next()) |entry| {
-        self.allocator.destroy(entry.value_ptr);
+        self.arena.destroy(entry.value_ptr);
     }
     self.query_params.deinit();
 
     // Free form_params
     it = self.form_params.iterator();
     while (it.next()) |entry| {
-        self.allocator.destroy(entry.value_ptr);
+        self.arena.destroy(entry.value_ptr);
     }
     self.form_params.deinit();
 
     // Free headers
     it = self.headers.iterator();
     while (it.next()) |entry| {
-        self.allocator.destroy(entry.value_ptr);
+        self.arena.destroy(entry.value_ptr);
     }
     self.headers.deinit();
 
     // Free json_payload if it was dynamically allocated (assuming it may be heap-allocated)
     if (self.json_payload.len > 0) {
-        self.allocator.free(self.json_payload);
+        self.arena.free(self.json_payload);
     }
 }
 
@@ -83,13 +83,13 @@ pub fn addParam(self: *Self, key: []const u8, value: []const u8) !void {
     try self.params.put(key, value);
 }
 
-fn generateCookieString(self: *Self, allocator: std.mem.Allocator) !std.RingBuffer {
+fn generateCookieString(self: *Self) !std.RingBuffer {
     var cookies_itr = self.cookies.keyIterator();
-    var builder: std.RingBuffer = try std.RingBuffer.init(allocator, 1024);
+    var builder: std.RingBuffer = try std.RingBuffer.init(self.arena, 1024);
     while (cookies_itr.next()) |key| {
         const cookie = self.cookies.get(key.*).?;
         // const value: []const u8 = try std.fmt.allocPrint(
-        //     std.heap.c_allocator,
+        //     std.heap.c_arena,
         //     "${}\r\n{s}\r\n",
         //     .{ size, node.*.value },
         // );
@@ -104,10 +104,51 @@ fn generateCookieString(self: *Self, allocator: std.mem.Allocator) !std.RingBuff
     return builder;
 }
 
+pub fn ERROR(self: *Self, status_code: u16, string: []const u8) !void {
+    var builder = try self.generateCookieString();
+    defer builder.deinit(self.arena);
+    const len = builder.len();
+    const generate_cookies_str = builder.data[0..len];
+    if (self.cookies.count() > 0) {
+        const stt = "HTTP/1.1 {d} NOT FOUND \r\n" ++
+            "{s}" ++
+            "Connection: close\r\n" ++
+            "Content-Type: text/html; charset=utf8\r\n" ++
+            "Content-Length: {}\r\n" ++
+            "\r\n" ++
+            "{s}";
+        const response = std.fmt.allocPrint(
+            self.arena,
+            stt,
+            .{
+                status_code,
+                generate_cookies_str,
+                string.len,
+                string,
+            },
+        ) catch unreachable;
+        _ = try self.conn.stream.write(response);
+        self.arena.free(response);
+    } else {
+        const stt = "HTTP/1.1 {d} NOT FOUND \r\n" ++
+            "Connection: close\r\n" ++
+            "Content-Type: text/html; charset=utf8\r\n" ++
+            "Content-Length: {}\r\n" ++
+            "\r\n" ++
+            "{s}";
+        const response = std.fmt.allocPrint(
+            self.arena,
+            stt,
+            .{ status_code, string.len, string },
+        ) catch unreachable;
+        _ = try self.conn.stream.write(response);
+        self.arena.free(response);
+    }
+}
+
 pub fn STRING(self: *Self, string: []const u8) !void {
-    const allocator = std.heap.c_allocator;
-    var builder = try self.generateCookieString(allocator);
-    defer builder.deinit(allocator);
+    var builder = try self.generateCookieString();
+    defer builder.deinit(self.arena);
     const len = builder.len();
     const generate_cookies_str = builder.data[0..len];
     if (self.cookies.count() > 0) {
@@ -119,7 +160,7 @@ pub fn STRING(self: *Self, string: []const u8) !void {
             "\r\n" ++
             "{s}";
         const response = std.fmt.allocPrint(
-            std.heap.c_allocator,
+            self.arena,
             stt,
             .{
                 generate_cookies_str,
@@ -128,6 +169,7 @@ pub fn STRING(self: *Self, string: []const u8) !void {
             },
         ) catch unreachable;
         _ = try self.conn.stream.write(response);
+        self.arena.free(response);
     } else {
         const stt = "HTTP/1.1 200 Success \r\n" ++
             "Connection: close\r\n" ++
@@ -136,23 +178,24 @@ pub fn STRING(self: *Self, string: []const u8) !void {
             "\r\n" ++
             "{s}";
         const response = std.fmt.allocPrint(
-            std.heap.c_allocator,
+            self.arena,
             stt,
             .{ string.len, string },
         ) catch unreachable;
         _ = try self.conn.stream.write(response);
+        self.arena.free(response);
     }
 }
 
 pub fn JSON(self: *Self, comptime T: type, data: T) !void {
-    var buf: [1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var string = std.ArrayList(u8).init(fba.allocator());
+    // var buf: [1024]u8 = undefined;
+    // var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var string = std.ArrayList(u8).init(self.arena);
     defer string.deinit();
+    // Here the writer writes in bytes
     try std.json.stringify(data, .{}, string.writer());
-    const allocator = std.heap.c_allocator;
-    var builder = try self.generateCookieString(allocator);
-    defer builder.deinit(allocator);
+    var builder = try self.generateCookieString();
+    defer builder.deinit(self.arena);
     const len = builder.len();
     const generate_cookies_str = builder.data[0..len];
 
@@ -166,7 +209,7 @@ pub fn JSON(self: *Self, comptime T: type, data: T) !void {
             "{s}";
 
         const response = std.fmt.allocPrint(
-            std.heap.c_allocator,
+            self.arena,
             stt,
             .{
                 generate_cookies_str,
@@ -175,6 +218,7 @@ pub fn JSON(self: *Self, comptime T: type, data: T) !void {
             },
         ) catch unreachable;
         _ = try self.conn.stream.write(response);
+        self.arena.free(response);
     } else {
         const stt = "HTTP/1.1 200 Success \r\n" ++
             "Connection: close\r\n" ++
@@ -184,18 +228,19 @@ pub fn JSON(self: *Self, comptime T: type, data: T) !void {
             "{s}";
 
         const response = std.fmt.allocPrint(
-            std.heap.c_allocator,
+            self.arena,
             stt,
             .{ string.items.len, string.items },
         ) catch unreachable;
         _ = try self.conn.stream.write(response);
+        self.arena.free(response);
     }
 }
 
 pub fn SET(self: *Self, key: []const u8, comptime T: type, data: T) !void {
-    var buf: [1024]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    var json = std.ArrayList(u8).init(fba.allocator());
+    // var buf: [1024]u8 = undefined;
+    // var fba = std.heap.FixedBufferAllocator.init(&buf);
+    var json = std.ArrayList(u8).init(self.arena);
     defer json.deinit();
     try std.json.stringify(data, .{}, json.writer());
     self.setValues.put(key, json.items);
@@ -231,15 +276,32 @@ pub fn setJson(self: *Self, haystack: []const u8) !void {
     self.json_payload = json_payload;
 }
 
+// TODO figure what the hell is wrong with struct fields set to []const u8,
+// but then to store it it needs to a []u8 field and then to stringify the struct field needs to []const u8
+/// This function takes the Struct Type and outputs the parsed json payload into the struct.
+///
+/// # Parameters:
+/// - `Context`: *Context.
+/// - `T`: StructType.
+///
+/// # Returns:
+/// Struct.
+///
+/// # Example:
+/// try ctx.bind(CredentialsReq)
+/// # Returns:
+/// CredentialsReq { name: "Vic", password: "password" }.
 pub fn bind(self: *Self, comptime T: type) !T {
     const fields = @typeInfo(T).Struct.fields;
     var parsed = std.json.parseFromSlice(
         T,
-        self.allocator,
+        self.arena,
         self.json_payload,
         .{},
     ) catch return error.MalformedJson;
     defer parsed.deinit();
+
+    // we need to parse the struct []const u8 into []u8 to store in the hashmap
     inline for (fields) |f| {
         if (f.type == []const u8) {
             const field_value = @field(parsed.value, f.name);

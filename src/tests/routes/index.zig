@@ -47,7 +47,7 @@ pub fn set(ctx: *Context) !void {
 
 pub fn dllNimbus(ctx: *Context) !void {
     var str_arr = [_][]const u8{ "one", "two", "three" };
-    const resp = try nimbus_cache.cache_client_one.lpush(3, "mylist", &str_arr);
+    const resp = try nimbus_cache.cache_client_one.lpushmany(3, "mylist", &str_arr);
     _ = try ctx.STRING(resp);
 }
 
@@ -58,29 +58,33 @@ pub fn dllRangeNimbus(ctx: *Context) !void {
 
 pub fn dllNimbus_two(ctx: *Context) !void {
     var str_arr = [_][]const u8{ "four", "five", "six", "seven" };
-    const resp = try nimbus_cache.cache_client_two.lpush(4, "mylist", &str_arr);
+    const resp = try nimbus_cache.cache_client_two.lpushmany(4, "mylist", &str_arr);
     _ = try ctx.STRING(resp);
-}
-
-pub fn createUser(ctx: *Context) !void {
-    var user = try ctx.bind(User);
-    var uuid_buf: [36]u8 = undefined;
-    helpers.newV4().to_string(&uuid_buf);
-    user.id = try helpers.convertStringToSlice(&uuid_buf, std.heap.c_allocator);
-    try cache.user_db.put(user.id.?, user);
-    _ = try ctx.STRING(user.id.?);
 }
 
 pub fn updateUser(ctx: *Context) anyerror!void {
     var user = try ctx.bind(User);
-    user.id = try helpers.convertStringToSlice(user.id.?, std.heap.c_allocator);
-    try cache.user_db.put(user.id.?, user);
-    const cached_user = try cache.user_db.get(user.id.?);
-    _ = try ctx.JSON(User, cached_user);
+    user.id = try helpers.convertStringToSlice(user.id, ctx.arena);
+    try cache.user_db.put(user.id, user);
+    const cached_user = try cache.user_db.get(user.id);
+    _ = ctx.JSON(User, cached_user) catch {
+        try ctx.ERROR(401, "Update Error: Could not update");
+        return error.InternalServerError;
+    };
 }
 
 pub fn getUserById(ctx: *Context) anyerror!void {
-    const id = try ctx.param("id");
-    const user = try cache.user_db.get(id);
-    _ = try ctx.JSON(User, user);
+    const id = ctx.param("id") catch {
+        try ctx.ERROR(401, "Param Error: Could not find param");
+        return error.InternalServerError;
+    };
+    const user = cache.user_db.get(id) catch |err| {
+        std.debug.print("\n{}", .{err});
+        try ctx.ERROR(401, "Database Error: Value not found");
+        return error.InternalServerError;
+    };
+    _ = ctx.JSON(User, user) catch {
+        try ctx.ERROR(401, "Reponse Error: Could not send JSON response");
+        return error.InternalServerError;
+    };
 }

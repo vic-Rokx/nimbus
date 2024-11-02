@@ -1,7 +1,9 @@
 const std = @import("std");
 const Nimbus = @import("./nimbus/server.zig");
 const routes = @import("./tests/routes/index.zig");
-const authroutes = @import("./tests/middleware/auth.zig");
+const articleroutes = @import("./tests/routes/article.zig");
+const authroutes = @import("./tests/routes/auth.zig");
+const mdauthroutes = @import("./tests/middleware/auth.zig");
 const Context = @import("./context/index.zig");
 const MiddleFunc = @import("./nimbus/server.zig").MiddleFunc;
 const HandlerFunc = @import("./nimbus/server.zig").HandlerFunc;
@@ -11,7 +13,7 @@ const initCaches = @import("./tests/init/index.zig").init;
 pub fn createBackendServer_one(port: u16) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // defer arena.deinit();
-    const allocator = arena.allocator();
+    var allocator = arena.allocator();
     const server_addr = "127.0.0.1";
     const server_port = port;
     const config = Nimbus.Config{
@@ -21,12 +23,24 @@ pub fn createBackendServer_one(port: u16) !void {
     };
 
     try init(allocator);
-    var nimbus = try Nimbus.new(config, allocator);
+    var nimbus: Nimbus = undefined;
+    try nimbus.new(config, &allocator);
     defer nimbus.deinit();
 
-    try nimbus.addRoute("/users", "POST", routes.createUser, &[_]MiddleFunc{authroutes.validate});
-    try nimbus.addRoute("/users/:id", "GET", routes.getUserById, &[_]MiddleFunc{});
+    try nimbus.addRoute(
+        "/users/:id",
+        "GET",
+        routes.getUserById,
+        &[_]MiddleFunc{mdauthroutes.verifyAuth},
+    );
+    try nimbus.addRoute(
+        "/articles/:id",
+        "GET",
+        articleroutes.getArticleById,
+        &[_]MiddleFunc{},
+    );
     try nimbus.addRoute("/users/:id", "PATCH", routes.updateUser, &[_]MiddleFunc{});
+    try nimbus.addRoute("/articles", "POST", articleroutes.createArticle, &[_]MiddleFunc{});
     try nimbus.addRoute("/signup", "POST", authroutes.signup, &[_]MiddleFunc{});
     try nimbus.addRoute("/pingnimbus", "POST", routes.pingNimbus, &[_]MiddleFunc{});
     try nimbus.addRoute("/dllpush", "POST", routes.dllNimbus, &[_]MiddleFunc{});
@@ -40,7 +54,7 @@ pub fn createBackendServer_one(port: u16) !void {
 pub fn createBackendServer_two(port: u16) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     // defer arena.deinit();
-    const allocator = arena.allocator();
+    var allocator = arena.allocator();
     const server_addr = "127.0.0.1";
     const server_port = port;
     const config = Nimbus.Config{
@@ -50,12 +64,24 @@ pub fn createBackendServer_two(port: u16) !void {
     };
 
     try init(allocator);
-    var nimbus = try Nimbus.new(config, allocator);
+    var nimbus: Nimbus = undefined;
+    try nimbus.new(config, &allocator);
     defer nimbus.deinit();
 
-    try nimbus.addRoute("/users", "POST", routes.createUser, &[_]MiddleFunc{authroutes.validate});
-    try nimbus.addRoute("/users/:id", "GET", routes.getUserById, &[_]MiddleFunc{});
+    try nimbus.addRoute(
+        "/users/:id",
+        "GET",
+        routes.getUserById,
+        &[_]MiddleFunc{mdauthroutes.verifyAuth},
+    );
+    try nimbus.addRoute(
+        "/articles/:id",
+        "GET",
+        articleroutes.getArticleById,
+        &[_]MiddleFunc{},
+    );
     try nimbus.addRoute("/users/:id", "PATCH", routes.updateUser, &[_]MiddleFunc{});
+    try nimbus.addRoute("/articles", "POST", articleroutes.createArticle, &[_]MiddleFunc{});
     try nimbus.addRoute("/signup", "POST", authroutes.signup, &[_]MiddleFunc{});
     try nimbus.addRoute("/pingnimbus", "POST", routes.pingNimbus, &[_]MiddleFunc{});
     try nimbus.addRoute("/dllpush", "POST", routes.dllNimbus_two, &[_]MiddleFunc{});

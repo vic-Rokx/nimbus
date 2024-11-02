@@ -1,18 +1,15 @@
 pub const User = struct {
-    id: ?[]const u8,
+    id: []const u8,
     name: []const u8,
-    age: usize,
-    height: usize,
-    weight: usize,
-    favoriteLanguage: []const u8,
+    email: []const u8,
 };
 
 pub const Article = struct {
-    id: ?[]u8,
-    title: []u8,
-    author: []u8,
-    image: []u8,
-    summary: []u8,
+    id: ?[]const u8,
+    title: []const u8,
+    author: []const u8,
+    image: []const u8,
+    summary: []const u8,
 };
 
 pub const Root = struct {
@@ -23,7 +20,8 @@ pub const Root = struct {
 };
 
 pub const CredentialsReq = struct {
-    email: []u8,
-    password: []u8,
+    name: []const u8,
+    email: []const u8,
+    password: []const u8,
 };
 // pub const GetId = struct { id: []u8 };

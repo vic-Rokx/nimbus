@@ -1,5 +1,6 @@
 const std = @import("std");
 const User = @import("../models.zig").User;
+const Article = @import("../models.zig").Article;
 const ShardMap = @import("../../cache/shard.zig").ShardMap;
 
 pub fn Cache(comptime T: type) type {
@@ -30,15 +31,29 @@ pub fn Cache(comptime T: type) type {
 }
 
 pub var user_db: Cache(User) = undefined;
+pub var user_hash_db: Cache([]const u8) = undefined;
+pub var article_db: Cache(Article) = undefined;
 
 pub fn init(allocator: std.mem.Allocator) !void {
-    const shard_count: usize = 32;
+    const shard_count: usize = 1;
     const user_cache = try Cache(User).init(
         allocator,
         shard_count,
     );
 
     user_db = user_cache;
+
+    const user_hash_cache = try Cache([]const u8).init(
+        allocator,
+        shard_count,
+    );
+
+    user_hash_db = user_hash_cache;
+
+    article_db = try Cache(Article).init(
+        allocator,
+        shard_count,
+    );
 
     // const user = User{
     //     .id = null,

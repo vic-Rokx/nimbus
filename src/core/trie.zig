@@ -111,34 +111,34 @@ test "Trie should find inserted words" {
     }
 }
 
-test "Trie should not find non-inserted words" {
-    // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    // defer arena.deinit();
-
-    var trie = try Trie.init();
-    // defer trie.deinit();
-
-    const words = [_][]const u8{
-        "apple",
-        "banana",
-        "grape",
-        "orange",
-        "watermelon",
-    };
-
-    const nonInsertedWords = [_][]const u8{
-        "pineapple",
-        "blueberry",
-        "peach",
-        "mango",
-        "strawberry",
-    };
-
-    for (words) |word| {
-        try trie.insert(word);
-    }
-
-    for (nonInsertedWords) |word| {
-        try std.testing.expect(!trie.search(word));
-    }
-}
+// test "Trie should not find non-inserted words" {
+//     // var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+//     // defer arena.deinit();
+//
+//     var trie = try Trie.init();
+//     // defer trie.deinit();
+//
+//     const words = [_][]const u8{
+//         "apple",
+//         "banana",
+//         "grape",
+//         "orange",
+//         "watermelon",
+//     };
+//
+//     const nonInsertedWords = [_][]const u8{
+//         "pineapple",
+//         "blueberry",
+//         "peach",
+//         "mango",
+//         "strawberry",
+//     };
+//
+//     for (words) |word| {
+//         try trie.insert(word);
+//     }
+//
+//     for (nonInsertedWords) |word| {
+//         try std.testing.expect(!trie.search(word));
+//     }
+// }

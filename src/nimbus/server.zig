@@ -11,7 +11,7 @@ const net = std.net;
 const Self = @This();
 
 pub const HandlerFunc = *const fn (*Context) anyerror!void;
-pub const MiddleFunc = *const fn (HandlerFunc, *Context) HandlerFunc;
+pub const MiddleFunc = *const fn (HandlerFunc, *Context) anyerror!HandlerFunc;
 
 pub const Config = struct {
     server_addr: []const u8,
@@ -20,14 +20,23 @@ pub const Config = struct {
 };
 
 routes: std.StringHashMap(Radix.Router),
-allocator: mem.Allocator,
+arena: *mem.Allocator,
 config: Config,
 
-pub fn new(config: Config, allocator: mem.Allocator) !Self {
-    const routes_map = std.StringHashMap(Radix.Router).init(allocator);
-    return Self{
+/// This function takes the Nimbus Config and a pointer to Nimbus to initialize.
+///
+/// # Parameters:
+/// - `target`: *Nimbus.
+/// - `config`: Nimbus.Config.
+/// - `arena`: *std.mem.Allocator.
+///
+/// # Returns:
+/// void.
+pub fn new(target: *Self, config: Config, arena: *mem.Allocator) !void {
+    const routes_map = std.StringHashMap(Radix.Router).init(arena.*);
+    target.* = .{
         .config = config,
-        .allocator = allocator,
+        .arena = arena,
         .routes = routes_map,
     };
 }
@@ -46,7 +55,7 @@ fn parseMiddleWare(func_num: usize, my_Handler: HandlerFunc, middleswares: []con
         try my_Handler(ctx);
     } else {
         const first_func = middleswares[func_num];
-        const wrappedFunc = first_func(my_Handler, ctx);
+        const wrappedFunc = try first_func(my_Handler, ctx);
         try parseMiddleWare(func_num + 1, wrappedFunc, middleswares, ctx);
     }
 }
@@ -61,7 +70,7 @@ pub fn addRoute(
     var radix = self.routes.get(method);
 
     if (radix == null) {
-        radix = try Radix.Router.init(self.allocator);
+        radix = try Radix.Router.init(self.arena.*);
     }
     try radix.?.addRoute(path, handler, middlewares);
     try self.routes.put(method, radix.?);
@@ -96,7 +105,7 @@ pub fn parser(self: Self, comptime CacheType: type, haystack: []const u8) !Parse
 
     const parsed = std.json.parseFromSlice(
         CacheType,
-        self.allocator,
+        self.arena.*,
         json_payload,
         .{},
     ) catch return error.MalformedJson;
@@ -106,7 +115,7 @@ pub fn parser(self: Self, comptime CacheType: type, haystack: []const u8) !Parse
 }
 
 pub fn createContext(self: *Self, comptime T: type, data: T) !Context {
-    const ctx = try Context.init(self.allocator, data);
+    const ctx = try Context.init(self.arena, data);
     return ctx;
 }
 
@@ -190,7 +199,7 @@ pub fn listen(self: *Self) !void {
         const method = try helpers.parseMethod(header.request_line);
         header.method = method;
 
-        var ctx = try Context.init(self.allocator, method, path, conn);
+        var ctx = try Context.init(self.arena, method, path, conn);
 
         if (header.cookies.items.len > 0) {
             var cookie_count: usize = 0;

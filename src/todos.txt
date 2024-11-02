@@ -1,0 +1,6 @@
+Add function to add query parameters to url path
+Rules
+store array not as pointers in structs, and store that struct values as poiinters
+Upgrade to the lastest version of zig
+
+

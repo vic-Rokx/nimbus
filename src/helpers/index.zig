@@ -9,6 +9,7 @@ const ServerError = error{
     HeaderMalformed,
     RequestNotSupported,
     ProtoNotSupported,
+    InternalServerError,
 };
 
 const CookieTypes = enum {

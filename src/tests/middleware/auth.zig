@@ -6,43 +6,36 @@ const HandlerFunc = @import("../../nimbus/server.zig").HandlerFunc;
 const CredentialsReq = @import("../models.zig").CredentialsReq;
 const Auth = @import("../../auth/index.zig");
 const User = @import("../models.zig").User;
+const cache = @import("../data/index.zig");
+const session_utils = @import("../../session_utils/index.zig");
 
 fn readCookie(ctx: *Context) ![]const u8 {
     const cookie = try ctx.getCookie("Authorization");
     return cookie;
 }
 
-pub fn validate(next: HandlerFunc, ctx: *Context) HandlerFunc {
-    // _ = try ctx.bind(User);
-    // user.favoriteLanguage = "Golang is better";
-    // ctx.setValues("user", user);
-    std.debug.print("\nroute {s}", .{ctx.route});
+pub fn validate(next: HandlerFunc, ctx: *Context) !HandlerFunc {
+    const cookie = try readCookie(ctx);
+    std.debug.print("\nAuth Cookie token: {s}", .{cookie});
     return next;
 }
 
-fn verifyAuth(next: HandlerFunc, ctx: *Context) HandlerFunc {
-    ctx.user_id += 300;
-    return next;
-}
-
-pub fn createCacheSession(next: HandlerFunc, _: *Context) HandlerFunc {
-    var cache_hash: [36]u8 = undefined;
-    helpers.newV4().to_string(&cache_hash);
-    const expires = std.time.timestamp();
-    _ = Cookie.init("cache-session", &cache_hash, expires);
-    // try ctx.putCookie(cookie);
-    return next;
-}
-
-pub fn signup(ctx: *Context) !void {
-    const credentials = try ctx.bind(CredentialsReq);
-    var hash = try Auth.generatePassword(credentials.password);
-    var uuid_buf: [36]u8 = undefined;
-    helpers.newV4().to_string(&uuid_buf);
-    hash = try helpers.convertStringToSlice(&uuid_buf, std.heap.c_allocator);
-
-    const expires = std.time.timestamp();
-    const cookie = Cookie.init("Authorization", hash, expires);
-    try ctx.setCookie(cookie);
-    _ = try ctx.STRING("cookie written");
+pub fn verifyAuth(next: HandlerFunc, ctx: *Context) !HandlerFunc {
+    const creds = ctx.bind(CredentialsReq) catch {
+        try ctx.ERROR(401, "Middleware error: Could not bind data");
+        return error.InternalServerError;
+    };
+    var arena = std.heap.page_allocator;
+    // Compare and generate password are purposely slow
+    const hash = try Auth.generatePassword(creds.password[0..], &arena);
+    const verified = Auth.comparePassword(creds.password[0..], hash, &arena) catch {
+        try ctx.ERROR(401, "Password error: Compare failed");
+        return error.InternalServerError;
+    };
+    if (verified == Auth.AuthEnum.Success) {
+        return next;
+    } else {
+        try ctx.ERROR(401, "Internal Server Error: retry");
+        return error.InternalServerError;
+    }
 }

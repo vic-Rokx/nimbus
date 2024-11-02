@@ -1,5 +1,4 @@
 const std = @import("std");
-// const helpers = @import("../helpers/index.zig");
 const crypto = std.crypto;
 const bcrypt = crypto.pwhash.bcrypt;
 
@@ -24,24 +23,19 @@ const salt: [16]u8 = [_]u8{
     'j',
 };
 
-pub fn convertStringToSlice(haystack: []const u8, allocator: std.mem.Allocator) ![]u8 {
-    const mutable_slice = try allocator.dupe(u8, haystack);
-    return mutable_slice;
-}
+const AuthError = error{
+    VerificationInvalid,
+};
 
-pub fn generatePassword(password: []const u8) ![]const u8 {
-    // const hash_options: bcrypt.HashOptions = .{
-    //     .allocator = std.heap.page_allocator,
-    //     .params = params,
-    //     .encoding = std.crypto.pwhash.Encoding.crypt,
-    // };
+pub const AuthEnum = enum {
+    Success,
+};
 
-    const saltHash = bcrypt.bcrypt(password, salt, params);
-
-    const hash_options = bcrypt.HashOptions{
-        .params = .{ .rounds_log = 5 },
-        .encoding = .crypt,
-        .silently_truncate_password = false,
+pub fn generatePassword(password: []const u8, arena: *std.mem.Allocator) ![]const u8 {
+    const hash_options: bcrypt.HashOptions = .{
+        .allocator = arena.*,
+        .params = params,
+        .encoding = std.crypto.pwhash.Encoding.crypt,
     };
     var buffer: [bcrypt.hash_length * 2]u8 = undefined;
     const hash = bcrypt.strHash(
@@ -51,32 +45,28 @@ pub fn generatePassword(password: []const u8) ![]const u8 {
     ) catch |err| {
         return err;
     };
-    //
-    // const same = try comparePassword("password", hash[0..]);
-    std.debug.print("\n{s}\n", .{hash});
-    return saltHash[0..];
+    const s = try arena.*.alloc(u8, hash.len);
+    std.mem.copyForwards(u8, s, hash);
+    return s;
 }
 
-pub fn comparePassword(password: []const u8, hashedPassword: []u8) !bool {
-    const saltHash = bcrypt.bcrypt(password, salt, params);
-    std.debug.print("\n salt {any}\n", .{saltHash[0..]});
-    std.debug.print("\n hash {any}\n", .{hashedPassword});
-    return std.mem.eql(u8, saltHash[0..], hashedPassword);
-    // const verify_options = bcrypt.VerifyOptions{};
-    // bcrypt.strVerify(hashedPassword, password, verify_options) catch {
-    //     return false;
-    // };
-    // return true;
+pub fn comparePassword(
+    password: []const u8,
+    hash: []const u8,
+    arena: *std.mem.Allocator,
+) AuthError!AuthEnum {
+    bcrypt.strVerify(hash, password, bcrypt.VerifyOptions{
+        .allocator = arena.*,
+        .silently_truncate_password = false,
+    }) catch {
+        return AuthError.VerificationInvalid;
+    };
+    return AuthEnum.Success;
 }
 
-pub fn testMultPass() !void {
-    const hash = try generatePassword("password");
-    std.debug.print("\ngen {any}\n", .{hash});
-    // _ = try generatePassword("invalid password");
-    const same = try comparePassword("password", hash[0..]);
-    std.debug.print("\n{any}\n", .{same});
-}
-
-test "Insert" {
-    try testMultPass();
+pub fn main() !void {
+    var arena = std.heap.page_allocator;
+    const password = "password";
+    const hash = try generatePassword(password, &arena);
+    _ = try comparePassword(password, hash, &arena);
 }

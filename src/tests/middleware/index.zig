@@ -9,7 +9,7 @@ const Context = struct {
 };
 
 const HandlerFunc = *const fn (*Context) void;
-const MiddleFunc = *const fn (HandlerFunc, *Context) HandlerFunc;
+const MiddleFunc = *const fn (HandlerFunc, *Context) anyerror!HandlerFunc;
 
 // pub fn acceptCookie(ctx: *Context) anyerror!void {
 //     var user = try ctx.bind(User);

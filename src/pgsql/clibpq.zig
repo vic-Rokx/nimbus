@@ -1,7 +1,3 @@
-//! Libpq API example
-//! https://gist.github.com/jiacai2050/00709b98ee69d73d022d2f293555f08f
-//! https://www.postgresql.org/docs/16/libpq-example.html
-//!
 const std = @import("std");
 const print = std.debug.print;
 const c = @cImport({
@@ -9,10 +5,10 @@ const c = @cImport({
 });
 // zig build-exe index.zig -I/opt/homebrew/opt/libpq/include -L/opt/homebrew/opt/libpq/lib -lpq
 
-const DB = struct {
+pub const DB = struct {
     conn: *c.PGconn,
 
-    fn init(conn_info: [:0]const u8) !DB {
+    pub fn init(conn_info: [:0]const u8) !DB {
         const conn = c.PQconnectdb(conn_info);
         if (c.PQstatus(conn) != c.CONNECTION_OK) {
             print("Connect failed, err: {s}\n", .{c.PQerrorMessage(conn)});
@@ -21,12 +17,12 @@ const DB = struct {
         return DB{ .conn = conn.? };
     }
 
-    fn deinit(self: DB) void {
+    pub fn deinit(self: DB) void {
         c.PQfinish(self.conn);
     }
 
     // Execute a query without returning any data.
-    fn exec(self: DB, query: [:0]const u8) !void {
+    pub fn exec(self: DB, query: [:0]const u8) !void {
         const result = c.PQexec(self.conn, query);
         defer c.PQclear(result);
 
@@ -36,7 +32,7 @@ const DB = struct {
         }
     }
 
-    fn insertTable(self: DB) !void {
+    pub fn insertTable(self: DB) !void {
         // 1. create two prepared statements.
         {
             // There is no `get_last_insert_rowid` in libpq, so we use RETURNING id to get the last insert id.
@@ -122,7 +118,7 @@ const DB = struct {
         }
     }
 
-    fn queryTable(self: DB) !void {
+    pub fn queryTable(self: DB) !void {
         const query =
             \\ SELECT
             \\     c.name,
@@ -148,7 +144,7 @@ const DB = struct {
             print("Cat {s} is in {s} color\n", .{ cat_name, color_name });
         }
     }
-    fn dropTable(self: DB) !void {
+    pub fn dropTable(self: DB) !void {
         const query =
             \\ SELECT
             \\     c.name,
@@ -182,17 +178,17 @@ pub fn main() !void {
     const db = try DB.init(conn_info);
     defer db.deinit();
 
-    // try db.exec(
-    //     \\ create table if not exists cat_colors (
-    //     \\   id integer primary key generated always as identity,
-    //     \\   name text not null unique
-    //     \\ );
-    //     \\ create table if not exists cats (
-    //     \\   id integer primary key generated always as identity,
-    //     \\   name text not null,
-    //     \\   color_id integer not null references cat_colors(id)
-    //     \\ );
-    // );
+    try db.exec(
+        \\ create table if not exists cat_colors (
+        \\   id integer primary key generated always as identity,
+        \\   name text not null unique
+        \\ );
+        \\ create table if not exists cats (
+        \\   id integer primary key generated always as identity,
+        \\   name text not null,
+        \\   color_id integer not null references cat_colors(id)
+        \\ );
+    );
     // try db.exec(
     //     \\ drop table cat_colors
     // );

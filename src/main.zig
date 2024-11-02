@@ -47,6 +47,7 @@ pub fn createBackendServer_one(port: u16) !void {
     try nimbus.addRoute("/ping", "POST", routes.ping, &[_]MiddleFunc{authroutes.createCacheSession});
     try nimbus.addRoute("/set", "POST", routes.set, &[_]MiddleFunc{});
     try nimbus.addRoute("/dllrange", "POST", routes.dllRangeNimbus, &[_]MiddleFunc{});
+    try nimbus.addRoute("/createDB", "POST", articleroutes.createDB, &[_]MiddleFunc{});
     // try nimbus.addRoute("/users/:name/:id", "GET", routes.getUser);
     try nimbus.listen();
 }
@@ -93,7 +94,7 @@ pub fn createBackendServer_two(port: u16) !void {
 pub fn main() !void {
     try initCaches();
     var thread1 = try std.Thread.spawn(.{}, createBackendServer_one, .{8081});
-    var thread2 = try std.Thread.spawn(.{}, createBackendServer_two, .{8082});
+    // var thread2 = try std.Thread.spawn(.{}, createBackendServer_two, .{8082});
     thread1.join();
-    thread2.join();
+    // thread2.join();
 }

@@ -1,5 +1,4 @@
 ![Logo](/logo.svg)
-## Nimbus
 
 High performance, extensible, minimalist Zig web framework.
 

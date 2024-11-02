@@ -1,5 +1,4 @@
 ![Logo](/logo.svg)
-
 ## Nimbus
 
 High performance, extensible, minimalist Zig web framework.
@@ -75,4 +74,3 @@ pub fn main() !void {
 ## License
 This software is provided under the MIT license, but commercial use requires explicit permission from the
 Vic-August Rokx-Nellemann (v.rokx.nellemann@gmail.com).
-[MIT]

@@ -1,5 +1,7 @@
 const std = @import("std");
 const Context = @import("../context/index.zig");
+const servers = @import("../stats/recorder.zig");
+const dashboard = @import("../dashboard/index.zig");
 const Cookie = @import("../core/Cookie.zig");
 const Radix = @import("../core/Radix.zig");
 const helpers = @import("../helpers/index.zig");
@@ -8,7 +10,7 @@ const Parsed = std.json.Parsed;
 const print = std.debug.print;
 const net = std.net;
 
-const Self = @This();
+const Nimbus = @This();
 
 pub const HandlerFunc = *const fn (*Context) anyerror!void;
 pub const MiddleFunc = *const fn (HandlerFunc, *Context) anyerror!HandlerFunc;
@@ -32,7 +34,7 @@ config: Config,
 ///
 /// # Returns:
 /// void.
-pub fn new(target: *Self, config: Config, arena: *mem.Allocator) !void {
+pub fn new(target: *Nimbus, config: Config, arena: *mem.Allocator) !void {
     const routes_map = std.StringHashMap(Radix.Router).init(arena.*);
     target.* = .{
         .config = config,
@@ -41,13 +43,20 @@ pub fn new(target: *Self, config: Config, arena: *mem.Allocator) !void {
     };
 }
 
-pub fn deinit(self: *Self) void {
-    var routes_it = self.routes.valueIterator();
+/// This function takes a pointer to this Nimbus instance.
+/// Deinitializes the nimbus instance recursively calls routes deinit routes from radix tree
+/// # Parameters:
+/// - `target`: *Nimbus.
+///
+/// # Returns:
+/// void.
+pub fn deinit(nimbus: *Nimbus) void {
+    var routes_it = nimbus.routes.valueIterator();
     while (routes_it.next()) |value| {
         try value.deinit();
     }
 
-    self.routes.deinit();
+    nimbus.routes.deinit();
 }
 
 fn parseMiddleWare(func_num: usize, my_Handler: HandlerFunc, middleswares: []const MiddleFunc, ctx: *Context) !void {
@@ -60,25 +69,36 @@ fn parseMiddleWare(func_num: usize, my_Handler: HandlerFunc, middleswares: []con
     }
 }
 
+/// This function adds the route to the nimbus radix tree.
+/// Deinitializes the nimbus instance recursively calls routes deinit routes from radix tree
+/// # Parameters:
+/// - `target`: *Nimbus.
+/// - `path`: []const u8
+/// - `method`: []const u8
+/// - `handler`: HandlerFunc
+/// - `middlewares`: []const MiddleFunc
+///
+/// # Returns:
+/// !void.
 pub fn addRoute(
-    self: *Self,
+    nimbus: *Nimbus,
     comptime path: []const u8,
     comptime method: []const u8,
     handler: HandlerFunc,
     middlewares: []const MiddleFunc,
 ) !void {
-    var radix = self.routes.get(method);
+    var radix = nimbus.routes.get(method);
 
     if (radix == null) {
-        radix = try Radix.Router.init(self.arena.*);
+        radix = try Radix.Router.init(nimbus.arena.*);
     }
     try radix.?.addRoute(path, handler, middlewares);
-    try self.routes.put(method, radix.?);
+    try nimbus.routes.put(method, radix.?);
     return;
 }
 
-pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: *Context) !void {
-    var routesResult = self.routes.get(method);
+fn callRoute(nimbus: *Nimbus, path: []const u8, method: []const u8, ctx: *Context) !void {
+    var routesResult = nimbus.routes.get(method);
     if (routesResult == null) {
         return error.MethodNotSupported;
     }
@@ -86,17 +106,22 @@ pub fn callRoute(self: *Self, path: []const u8, method: []const u8, ctx: *Contex
     if (entry == null) {
         return error.MethodNotSupported;
     }
+    if (entry.?.route_func == null) {
+        return error.MethodNotSupported;
+    }
     const entry_fn: *const fn (*Context) anyerror!void = @ptrCast(entry.?.route_func.?.handler_func);
     const middlewares = entry.?.route_func.?.middlewares;
     const param_args = entry.?.param_args;
-    for (param_args.items) |param| {
-        try ctx.addParam(param.param, param.value);
+    if (param_args.items.len > 0) {
+        for (param_args.items) |param| {
+            try ctx.addParam(param.param, param.value);
+        }
     }
 
     try parseMiddleWare(0, entry_fn, middlewares, ctx);
 }
 
-pub fn parser(self: Self, comptime CacheType: type, haystack: []const u8) !Parsed(CacheType) {
+fn parser(nimbus: Nimbus, comptime CacheType: type, haystack: []const u8) !Parsed(CacheType) {
     const payload_start = std.mem.indexOf(u8, haystack, "\r\n\r\n") orelse {
         std.debug.print("Failed to find payload start.\n", .{});
         return error.PostFailed;
@@ -105,7 +130,7 @@ pub fn parser(self: Self, comptime CacheType: type, haystack: []const u8) !Parse
 
     const parsed = std.json.parseFromSlice(
         CacheType,
-        self.arena.*,
+        nimbus.arena.*,
         json_payload,
         .{},
     ) catch return error.MalformedJson;
@@ -114,12 +139,25 @@ pub fn parser(self: Self, comptime CacheType: type, haystack: []const u8) !Parse
     return parsed;
 }
 
-pub fn createContext(self: *Self, comptime T: type, data: T) !Context {
-    const ctx = try Context.init(self.arena, data);
+fn createContext(nimbus: *Nimbus, comptime T: type, data: T) !Context {
+    const ctx = try Context.init(nimbus.arena, data);
     return ctx;
 }
 
-pub fn listen(self: *Self) !void {
+fn initDashboard(nimbus: *Nimbus) !void {
+    print("Init dashboard\n", .{});
+    try servers.server_stats.init();
+    try nimbus.addRoute("/dashboard", "GET", dashboard.pageStats, &[_]MiddleFunc{});
+    try nimbus.addRoute("/dashboard/server-status", "GET", dashboard.serverStatus, &[_]MiddleFunc{});
+    try nimbus.addRoute("/dashboard/request-metrics", "GET", dashboard.requestMetrics, &[_]MiddleFunc{});
+}
+
+/// This function calls listen on the Nimbus instance.
+///
+/// # Returns:
+/// !void.
+pub fn listen(nimbus: *Nimbus) !void {
+    // try servers.server_stats_1.init();
     // const color = "\x1b[38;5;57m";
     // const white = "\x1b[37m"; // White
     const red = "\x1b[31m"; // ANSI escape code for red color
@@ -134,15 +172,15 @@ pub fn listen(self: *Self) !void {
     //     \\    \ \_\   \ \_____\  \ \_\ \ \_\  \ \_\    \ \_____\  \/\_____\    \ \_\
     //     \\     \/_/    \/_____/   \/_/  \/_/   \/_/     \/_____/   \/_____/     \/_/
     // ;
-    const ascii_art =
-        \\                       __                        
-        \\        __            /\ \                       
-        \\   ___ /\_\    ___ ___\ \ \____  __  __    ____  
-        \\ /' _ `\/\ \ /' __` __`\ \ '__`\/\ \/\ \  /',__\ 
-        \\ /\ \/\ \ \ \/\ \/\ \/\ \ \ \L\ \ \ \_\ \/\__, `\
-        \\ \ \_\ \_\ \_\ \_\ \_\ \_\ \_,__/\ \____/\/\____/
-        \\  \/_/\/_/\/_/\/_/\/_/\/_/\/___/  \/___/  \/___/ 
-    ;
+    // const ascii_art =
+    //     \\                       __
+    //     \\        __            /\ \
+    //     \\   ___ /\_\    ___ ___\ \ \____  __  __    ____
+    //     \\ /' _ `\/\ \ /' __` __`\ \ '__`\/\ \/\ \  /',__\
+    //     \\ /\ \/\ \ \ \/\ \/\ \/\ \ \ \L\ \ \ \_\ \/\__, `\
+    //     \\ \ \_\ \_\ \_\ \_\ \_\ \_\ \_,__/\ \____/\/\____/
+    //     \\  \/_/\/_/\/_/\/_/\/_/\/_/\/___/  \/___/  \/___/
+    // ;
 
     // const ascii_art =
     //     \\  __   __     __     __    __     ______     __  __     ______
@@ -151,16 +189,15 @@ pub fn listen(self: *Self) !void {
     //     \\  \ \_\\"\_\  \ \_\  \ \_\ \ \_\  \ \_____\  \ \_____\  \/\_____\
     //     \\   \/_/ \/_/   \/_/   \/_/  \/_/   \/_____/   \/_____/   \/_____/
     // ;
-    print("\n{s}{s}\n", .{ ascii_art, reset });
+    // print("\n{s}{s}\n", .{ ascii_art, reset });
 
-    const self_addr = try net.Address.resolveIp(self.config.server_addr, self.config.server_port);
+    const self_addr = try net.Address.resolveIp(nimbus.config.server_addr, nimbus.config.server_port);
     var server = try self_addr.listen(.{ .reuse_address = true });
 
-    print("\n{s}{s}Running  {s}:{}{s}\n", .{ bold, background, self.config.server_addr, self.config.server_port, reset });
+    print("\n{s}{s}Running  {s}:{}{s}\n", .{ bold, background, nimbus.config.server_addr, nimbus.config.server_port, reset });
+    try nimbus.initDashboard();
 
     while (server.accept()) |conn| {
-        print("{s}{s}Accepted connection from:{s} {}\n", .{ red, bold, reset, conn.address });
-
         var recv_buf: [4096]u8 = undefined;
         var recv_total: usize = 0;
         while (conn.stream.read(recv_buf[recv_total..])) |recv_len| {
@@ -199,7 +236,7 @@ pub fn listen(self: *Self) !void {
         const method = try helpers.parseMethod(header.request_line);
         header.method = method;
 
-        var ctx = try Context.init(self.arena, method, path, conn);
+        var ctx = try Context.init(nimbus.arena, method, path, conn);
 
         if (header.cookies.items.len > 0) {
             var cookie_count: usize = 0;
@@ -215,7 +252,7 @@ pub fn listen(self: *Self) !void {
             }
         }
 
-        if (self.config.sticky_server and ctx.getCookie("Session") == null) {
+        if (nimbus.config.sticky_server and ctx.getCookie("Session") == null) {
             const hash = try helpers.parseSession(recv_data);
             const expires = std.time.timestamp();
             const cookie = Cookie.init(
@@ -227,8 +264,15 @@ pub fn listen(self: *Self) !void {
             ctx.sticky_session = hash;
         }
 
+        var path_itr = std.mem.tokenizeScalar(u8, path, '/');
+        if (path_itr.peek() != null and !std.mem.eql(u8, path_itr.next().?, "dashboard")) {
+            print("{s}{s}Accepted connection from:{s} {} {s} {s}\n", .{ red, bold, reset, conn.address, method, path });
+            // servers.server_stats.incrementActCount();
+            servers.server_stats.incrementReqCount();
+        }
+
         try ctx.setJson(recv_data);
-        const callRouteErr = self.callRoute(path, method, &ctx);
+        const callRouteErr = nimbus.callRoute(path, method, &ctx);
         try ctx.deinit();
 
         if (callRouteErr == error.MethodNotSupported) {
@@ -242,21 +286,6 @@ pub fn listen(self: *Self) !void {
         //     _ = try conn.stream.write(helpers.http400());
         //     conn.stream.close();
         // }
-
-        // _ = try conn.stream.write(helpers.http200());
-
-        // print("{s}", .{recv_data});
-        // const buf: []u8 = undefined;
-        // const mime: []const u8 = "";
-        // std.debug.print("SENDING----\n", .{});
-        // const httpHead =
-        //     "HTTP/1.1 200 OK \r\n" ++
-        //     "Connection: close\r\n" ++
-        //     "Content-Type: {s}\r\n" ++
-        //     "Content-Length: {}\r\n" ++
-        //     "\r\n";
-        // _ = try conn.stream.writer().print(httpHead, .{ mime, buf.len });
-        // _ = try conn.stream.writer().write(buf);
     } else |err| {
         std.debug.print("error in accept: {}\n", .{err});
     }

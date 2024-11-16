@@ -5,6 +5,14 @@ const Context = @import("../context/index.zig");
 const HandlerFunc = *const fn (*Context) anyerror!void;
 const MiddleFunc = *const fn (HandlerFunc, *Context) anyerror!HandlerFunc;
 
+// const HandlerFunc = *const fn ([]const u8) void;
+// const MiddleFunc = *const fn (HandlerFunc, []const u8) HandlerFunc;
+
+const RadixError = error{
+    FailedToInitRadix,
+    FailedToCreateNode,
+};
+
 const RouteFunc = struct {
     handler_func: HandlerFunc,
     middlewares: []const MiddleFunc,
@@ -147,14 +155,14 @@ fn handlePostsByName(path: []const u8) void {
     std.debug.print("\nHandle user route by name: {s} \n", .{path});
 }
 
-// test "Insert" {
-//     var trie = try Router.init();
-//     try trie.addRoute("/users/posts/:name", handlePostsByName);
-//     try trie.addRoute("/users/posts/:name/:id", handlePostsByName);
-//     try trie.addRoute("/users/posts", handlePosts);
-//     const route = try trie.searchRoute("/users/posts/Vic");
-//     try std.testing.expect(route != null);
-//     // std.debug.print("\nroute exists {any}\n", .{isThere});
-//     // std.debug.print("\nroute exists {s}\n", .{route.?.param_args.items[0]});
-//     // isThere.?.handler("users/routes");
-// }
+test "Insert" {
+    var trie = try Router.init(std.heap.page_allocator);
+    try trie.addRoute("/users/posts/:name", handlePostsByName, &[_]MiddleFunc{});
+    try trie.addRoute("/users/posts/:name/:id", handlePostsByName, &[_]MiddleFunc{});
+    try trie.addRoute("/users/posts", handlePosts, &[_]MiddleFunc{});
+    const route = try trie.searchRoute("/users/posts/Vic");
+    try std.testing.expect(route != null);
+    // std.debug.print("\nroute exists {any}\n", .{isThere});
+    // std.debug.print("\nroute exists {s}\n", .{route.?.param_args.items[0]});
+    // isThere.?.handler("users/routes");
+}

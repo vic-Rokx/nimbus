@@ -4,3 +4,10 @@ store array not as pointers in structs, and store that struct values as poiinter
 Upgrade to the lastest version of zig
 
 
+
+Total requests
+Health check
+requests per second
+latency
+
+

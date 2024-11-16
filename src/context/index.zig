@@ -188,8 +188,6 @@ pub fn STRING(self: *Self, string: []const u8) !void {
 }
 
 pub fn JSON(self: *Self, comptime T: type, data: T) !void {
-    // var buf: [1024]u8 = undefined;
-    // var fba = std.heap.FixedBufferAllocator.init(&buf);
     var string = std.ArrayList(u8).init(self.arena);
     defer string.deinit();
     // Here the writer writes in bytes
@@ -231,6 +229,54 @@ pub fn JSON(self: *Self, comptime T: type, data: T) !void {
             self.arena,
             stt,
             .{ string.items.len, string.items },
+        ) catch unreachable;
+        _ = try self.conn.stream.write(response);
+        self.arena.free(response);
+    }
+}
+
+pub fn HTML(self: *Self, html: []const u8) !void {
+    // Here the writer writes in bytes
+    var builder = try self.generateCookieString();
+    defer builder.deinit(self.arena);
+    const len = builder.len();
+    const generate_cookies_str = builder.data[0..len];
+
+    if (self.cookies.count() > 0) {
+        const stt = "HTTP/1.1 200 Success \r\n" ++
+            "{s}" ++
+            "Connection: close\r\n" ++
+            "Content-Type: application/json; charset=utf8\r\n" ++
+            "Content-Length: {}\r\n" ++
+            "\r\n" ++
+            "{s}";
+
+        const response = std.fmt.allocPrint(
+            self.arena,
+            stt,
+            .{
+                generate_cookies_str,
+                html.len,
+                html,
+            },
+        ) catch unreachable;
+        _ = try self.conn.stream.write(response);
+        self.arena.free(response);
+    } else {
+        const stt = "HTTP/1.1 200 Success \r\n" ++
+            "Connection: close\r\n" ++
+            "Content-Type: application/json; charset=utf8\r\n" ++
+            "Content-Length: {}\r\n" ++
+            "\r\n" ++
+            "{s}";
+
+        const response = std.fmt.allocPrint(
+            self.arena,
+            stt,
+            .{
+                html.len,
+                html,
+            },
         ) catch unreachable;
         _ = try self.conn.stream.write(response);
         self.arena.free(response);

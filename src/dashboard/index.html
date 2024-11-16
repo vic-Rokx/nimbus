@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Server Dashboard</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.10/htmx.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.7.0/chart.min.js"></script>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      margin: 0;
+      padding: 2rem;
+      background: #f5f7fa;
+    }
+
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-top: 1.5rem;
+    }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    .metric {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 0.75rem 0;
+      border-bottom: 1px solid #edf2f7;
+    }
+
+    .metric:last-child {
+      border-bottom: none;
+    }
+
+    .metric-label {
+      color: #4a5568;
+      font-size: 0.875rem;
+    }
+
+    .metric-value {
+      font-size: 1.25rem;
+      font-weight: 600;
+      color: #2d3748;
+    }
+
+    .status {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 0.5rem;
+    }
+
+    .status-healthy {
+      background: #48bb78;
+    }
+
+    .status-warning {
+      background: #ed8936;
+    }
+
+    .status-error {
+      background: #e53e3e;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 2rem;
+    }
+
+    .refresh-button {
+      background: #4299e1;
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.875rem;
+    }
+
+    .refresh-button:hover {
+      background: #3182ce;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <h1>Server Dashboard</h1>
+    <button class="refresh-button" hx-post="/refresh" hx-trigger="click" hx-target="#dashboard">
+      Refresh Data
+    </button>
+  </div>
+
+  <div id="dashboard" class="dashboard-grid">
+    <!-- Server Status Card -->
+    <div class="card" hx-get="/dashboard/server-status" hx-trigger="every 3s" hx-target="this">
+      <h2>Server Metrics</h2>
+      <div class="metric">
+        <span class="metric-label">Status</span>
+        <span class="metric-value">
+          <span class="status status-healthy"></span>
+          Loading... 
+        </span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Uptime</span>
+        <span class="metric-value">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Request Metrics Card -->
+    <div class="card" hx-get="/dashboard/request-metrics" hx-trigger="every 3s" hx-target="this">
+      <h2>Request Metrics</h2>
+      <div class="metric">
+        <span class="metric-label">Total Requests</span>
+        <span class="metric-value">Loading...</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Active Requests</span>
+        <span class="metric-value">Loading...</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Requests/sec</span>
+        <span class="metric-value">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Cache Statistics Card -->
+    <div class="card" <!-- hx-get="/api/cache-stats" -->
+      <!-- hx-trigger="every 10s" -->
+      >
+      <h2>Cache Statistics</h2>
+      <div class="metric">
+        <span class="metric-label">Cache Size</span>
+        <span class="metric-value">234MB / 1GB</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Hit Rate</span>
+        <span class="metric-value">87%</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Evictions</span>
+        <span class="metric-value">12</span>
+      </div>
+    </div>
+
+    <!-- Error Tracking Card -->
+    <div class="card" <!-- hx-get="/api/error-log" -->
+      <!-- hx-trigger="every 5s" -->
+      >
+      <h2>Error Log</h2>
+      <div class="metric">
+        <span class="metric-label">Error Rate</span>
+        <span class="metric-value">0.02%</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Last Error</span>
+        <span class="metric-value">2m ago</span>
+      </div>
+      <div class="metric">
+        <span class="metric-label">Critical Errors</span>
+        <span class="metric-value">0</span>
+      </div>
+    </div>
+
+    <!-- Traffic Graph Card -->
+    <div class="card" style="grid-column: 1 / -1">
+      <h2>Traffic Overview</h2>
+      <canvas id="trafficChart" height="200"></canvas>
+      <script>
+        const ctx = document.getElementById('trafficChart').getContext('2d');
+        new Chart(ctx, {
+          type: 'line',
+          data: {
+            labels: ['12am', '3am', '6am', '9am', '12pm', '3pm', '6pm', '9pm'],
+            datasets: [{
+              label: 'Requests/min',
+              data: [65, 59, 80, 81, 56, 55, 40, 70],
+              fill: false,
+              borderColor: '#4299e1',
+              tension: 0.1
+            }]
+          },
+          options: {
+            responsive: true,
+            plugins: {
+              legend: {
+                display: false
+              }
+            },
+            scales: {
+              y: {
+                beginAtZero: true
+              }
+            }
+          }
+        });
+      </script>
+    </div>
+  </div>
+
+  <!-- Toast Notifications -->
+  <div id="notifications" style="position: fixed; bottom: 1rem; right: 1rem;" <!-- hx-get="/api/notifications" -->
+    <!-- hx-trigger="every 10s" -->
+    >
+  </div>
+</body>
+
+</html>

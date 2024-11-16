@@ -63,11 +63,30 @@ pub fn dllNimbus_two(ctx: *Context) !void {
 }
 
 pub fn updateUser(ctx: *Context) anyerror!void {
-    var user = try ctx.bind(User);
-    user.id = try helpers.convertStringToSlice(user.id, ctx.arena);
+    const id = ctx.param("id") catch {
+        try ctx.ERROR(401, "Param Error: Could not find param");
+        return error.InternalServerError;
+    };
+    var user = cache.user_db.get(id) catch |err| {
+        std.debug.print("\n{}", .{err});
+        try ctx.ERROR(401, "Database Error: Value not found");
+        return error.InternalServerError;
+    };
+
+    var new_user = ctx.bind(User) catch {
+        try ctx.ERROR(401, "Bind error: Could not bind");
+        return error.InternalServerError;
+    };
+
+    _ = ctx.JSON(User, new_user) catch {
+        try ctx.ERROR(401, "Update Error: Could not update");
+        return error.InternalServerError;
+    };
+    new_user.id = try helpers.convertStringToSlice(user.id, ctx.arena);
+    user = new_user;
     try cache.user_db.put(user.id, user);
-    const cached_user = try cache.user_db.get(user.id);
-    _ = ctx.JSON(User, cached_user) catch {
+    const patched_user = try cache.user_db.get(user.id);
+    _ = ctx.JSON(User, patched_user) catch {
         try ctx.ERROR(401, "Update Error: Could not update");
         return error.InternalServerError;
     };

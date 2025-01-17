@@ -195,7 +195,6 @@ pub fn listen(nimbus: *Nimbus) !void {
     // print("\n{s}{s}\n", .{ ascii_art, reset });
 
     // Here we check the tls config and if it is set up or not
-
     if (nimbus.config.tls) {
         var tlsserver = try TLSServer.init(nimbus.config.server_port);
         try tlsserver.start();

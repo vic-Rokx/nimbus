@@ -5,6 +5,8 @@ const dashboard = @import("../dashboard/index.zig");
 const Cookie = @import("../core/Cookie.zig");
 const Radix = @import("../core/Radix.zig");
 const helpers = @import("../helpers/index.zig");
+const TLSServer = @import("../tls/tlsserver.zig").TlsServer;
+const TLSStruct = @import("../tls/tlsserver.zig");
 const mem = std.mem;
 const Parsed = std.json.Parsed;
 const print = std.debug.print;
@@ -19,6 +21,7 @@ pub const Config = struct {
     server_addr: []const u8,
     server_port: u16,
     sticky_server: bool,
+    tls: bool,
 };
 
 routes: std.StringHashMap(Radix.Router),
@@ -191,102 +194,234 @@ pub fn listen(nimbus: *Nimbus) !void {
     // ;
     // print("\n{s}{s}\n", .{ ascii_art, reset });
 
-    const self_addr = try net.Address.resolveIp(nimbus.config.server_addr, nimbus.config.server_port);
-    var server = try self_addr.listen(.{ .reuse_address = true });
+    // Here we check the tls config and if it is set up or not
 
-    print("\n{s}{s}Running  {s}:{}{s}\n", .{ bold, background, nimbus.config.server_addr, nimbus.config.server_port, reset });
-    try nimbus.initDashboard();
+    if (nimbus.config.tls) {
+        var tlsserver = try TLSServer.init(nimbus.config.server_port);
+        try tlsserver.start();
+        if (!tlsserver.running) return error.ServerNotRunning;
 
-    while (server.accept()) |conn| {
-        var recv_buf: [4096]u8 = undefined;
-        var recv_total: usize = 0;
-        while (conn.stream.read(recv_buf[recv_total..])) |recv_len| {
-            if (recv_len == 0) break;
-            recv_total += recv_len;
-            if (mem.containsAtLeast(u8, recv_buf[0..recv_total], 1, "\r\n\r\n")) {
-                break;
-            }
-        } else |read_err| {
-            return read_err;
-        }
-        const recv_data = recv_buf[0..recv_total];
-        if (recv_data.len == 0) {
-            // Browsers (or firefox?) attempt to optimize for speed
-            // by opening a connection to the server once a user highlights
-            // a link, but doesn't start sending the request until it's
-            // clicked. The request eventually times out so we just
-            // go agane.
-            std.debug.print("Got connection but no header!\n", .{});
-            continue;
-        }
+        while (tlsserver.running) {
+            if (tlsserver.tlsAcceptConn()) |ssl| {
+                // try tlsserver.handleClient(ssl);
+                var buffer: [4096]u8 = undefined;
 
-        // var hash = try helpers.parseSession(recv_data);
-        var header = try helpers.parseHeader(recv_data);
-        const path = helpers.parsePath(header.request_line) catch |err| {
-            if (err == error.MalformedJson) {
-                _ = try conn.stream.writer().write(helpers.httpJsonMalformed());
-                continue;
-            } else if (err == error.Success) {
-                _ = try conn.stream.writer().write(helpers.http200());
-                continue;
+                while (true) {
+                    const bytes_read = tlsserver.tlsRead(ssl, &buffer);
+                    if (bytes_read <= 0) break;
+
+                    const recv_data = buffer[0..@intCast(bytes_read)];
+
+                    if (recv_data.len == 0) {
+                        // Browsers (or firefox?) attempt to optimize for speed
+                        // by opening a connection to the server once a user highlights
+                        // a link, but doesn't start sending the request until it's
+                        // clicked. The request eventually times out so we just
+                        // go agane.
+                        std.debug.print("Got connection but no header!\n", .{});
+                        continue;
+                    }
+
+                    // var hash = try helpers.parseSession(recv_data);
+                    var header = try helpers.parseHeader(recv_data);
+                    const path = helpers.parsePath(header.request_line) catch |err| {
+                        if (err == error.MalformedJson) {
+                            // _ = try conn.stream.writer().write(helpers.httpJsonMalformed());
+                            TLSStruct.tlsWrite(ssl, helpers.httpJsonMalformed());
+                            continue;
+                        } else if (err == error.Success) {
+                            // _ = try conn.stream.writer().write(helpers.http200());
+                            TLSStruct.tlsWrite(ssl, helpers.http200());
+                            continue;
+                        } else {
+                            return err;
+                        }
+                    };
+                    const method = try helpers.parseMethod(header.request_line);
+                    header.method = method;
+
+                    var ctx = try Context.init(nimbus.arena, method, path, null, ssl, header.content_type);
+
+                    if (header.cookies.items.len > 0) {
+                        var cookie_count: usize = 0;
+                        while (cookie_count < header.cookies.items.len) {
+                            const expires = std.time.timestamp();
+                            const cookie = Cookie.init(
+                                header.cookies.items[cookie_count],
+                                header.cookies.items[cookie_count + 1],
+                                expires,
+                            );
+                            try ctx.putCookie(cookie);
+                            cookie_count += 2;
+                        }
+                    }
+
+                    if (nimbus.config.sticky_server and ctx.getCookie("Session") == null) {
+                        const hash = try helpers.parseSession(recv_data);
+                        const expires = std.time.timestamp();
+                        const cookie = Cookie.init(
+                            "Session",
+                            hash,
+                            expires,
+                        );
+                        try ctx.putCookie(cookie);
+                        ctx.sticky_session = hash;
+                    }
+
+                    var path_itr = std.mem.tokenizeScalar(u8, path, '/');
+                    if (path_itr.peek() != null and !std.mem.eql(u8, path_itr.next().?, "dashboard")) {
+                        // print("{s}{s}Accepted connection from:{s} {} {s} {s}\n", .{ red, bold, reset, conn.address, method, path });
+                        // servers.server_stats.incrementActCount();
+                        servers.server_stats.incrementReqCount();
+                    }
+
+                    try ctx.setJson(recv_data);
+                    const callRouteErr = nimbus.callRoute(path, method, &ctx);
+                    try ctx.deinit();
+
+                    if (callRouteErr == error.MethodNotSupported) {
+                        // _ = try conn.stream.write(helpers.http404());
+                        TLSStruct.tlsWrite(ssl, helpers.http404());
+                        // conn.stream.close();
+                    } else if (callRouteErr == error.ConnectionRefused) {
+                        // _ = try conn.stream.write(helpers.http401());
+                        TLSStruct.tlsWrite(ssl, helpers.http401());
+                        // conn.stream.close();
+                    }
+                }
+
+                tlsserver.tlsShutdown(ssl);
+                tlsserver.tlsFree(ssl);
             } else {
-                return err;
+                std.debug.print("Failed to accept connection\n", .{});
+                continue;
             }
-        };
-        const method = try helpers.parseMethod(header.request_line);
-        header.method = method;
+        }
+    } else {
+        const self_addr = try net.Address.resolveIp(nimbus.config.server_addr, nimbus.config.server_port);
+        var server = try self_addr.listen(.{ .reuse_address = true });
 
-        var ctx = try Context.init(nimbus.arena, method, path, conn);
+        print("\n{s}{s}Running  {s}:{}{s}\n", .{ bold, background, nimbus.config.server_addr, nimbus.config.server_port, reset });
+        // try nimbus.initDashboard();
 
-        if (header.cookies.items.len > 0) {
-            var cookie_count: usize = 0;
-            while (cookie_count < header.cookies.items.len) {
+        while (server.accept()) |conn| {
+            var recv_buf: [4096]u8 = undefined;
+            var recv_total: usize = 0;
+            while (conn.stream.read(recv_buf[recv_total..])) |recv_len| {
+                if (recv_len == 0) break;
+                recv_total += recv_len;
+                if (mem.containsAtLeast(u8, recv_buf[0..recv_total], 1, "\r\n\r\n")) {
+                    break;
+                }
+            } else |read_err| {
+                return read_err;
+            }
+            const recv_data = recv_buf[0..recv_total];
+            if (recv_data.len == 0) {
+                // Browsers (or firefox?) attempt to optimize for speed
+                // by opening a connection to the server once a user highlights
+                // a link, but doesn't start sending the request until it's
+                // clicked. The request eventually times out so we just
+                // go agane.
+                std.debug.print("Got connection but no header!\n", .{});
+                continue;
+            }
+
+            print("\n{s}", .{recv_data});
+
+            // var hash = try helpers.parseSession(recv_data);
+            var header = helpers.parseHeader(recv_data) catch |err| {
+                switch (err) {
+                    error.HeaderMalformed => {
+                        _ = try conn.stream.write(helpers.httpHeaderMalformed());
+                    },
+                    error.RequestNotSupported => {
+                        _ = try conn.stream.write(helpers.httpRequestNotSupported());
+                    },
+                    error.ProtoNotSupported => {
+                        _ = try conn.stream.write(helpers.httpProtocolNotSupported());
+                    },
+                    error.InternalServerError => {
+                        _ = try conn.stream.write(helpers.http500());
+                    },
+                    else => {
+                        _ = try conn.stream.write(helpers.http500());
+                    },
+                }
+                return err;
+            };
+            const path = helpers.parsePath(header.request_line) catch |err| {
+                switch (err) {
+                    error.HeaderMalformed => {
+                        _ = try conn.stream.write(helpers.httpHeaderMalformed());
+                    },
+                    error.RequestNotSupported => {
+                        _ = try conn.stream.write(helpers.httpRequestNotSupported());
+                    },
+                    error.ProtoNotSupported => {
+                        _ = try conn.stream.write(helpers.httpProtocolNotSupported());
+                    },
+                    error.InternalServerError => {
+                        _ = try conn.stream.write(helpers.http500());
+                    },
+                    else => {
+                        _ = try conn.stream.write(helpers.http500());
+                    },
+                }
+                return err;
+            };
+            const method = try helpers.parseMethod(header.request_line);
+            header.method = method;
+
+            var ctx = try Context.init(nimbus.arena, method, path, conn, null, header.content_type);
+
+            if (header.cookies.items.len > 0) {
+                var cookie_count: usize = 0;
+                while (cookie_count < header.cookies.items.len) {
+                    const expires = std.time.timestamp();
+                    const cookie = Cookie.init(
+                        header.cookies.items[cookie_count],
+                        header.cookies.items[cookie_count + 1],
+                        expires,
+                    );
+                    try ctx.putCookie(cookie);
+                    cookie_count += 2;
+                }
+            }
+
+            if (nimbus.config.sticky_server and ctx.getCookie("Session") == null) {
+                const hash = try helpers.parseSession(recv_data);
                 const expires = std.time.timestamp();
                 const cookie = Cookie.init(
-                    header.cookies.items[cookie_count],
-                    header.cookies.items[cookie_count + 1],
+                    "Session",
+                    hash,
                     expires,
                 );
                 try ctx.putCookie(cookie);
-                cookie_count += 2;
+                ctx.sticky_session = hash;
             }
-        }
 
-        if (nimbus.config.sticky_server and ctx.getCookie("Session") == null) {
-            const hash = try helpers.parseSession(recv_data);
-            const expires = std.time.timestamp();
-            const cookie = Cookie.init(
-                "Session",
-                hash,
-                expires,
-            );
-            try ctx.putCookie(cookie);
-            ctx.sticky_session = hash;
-        }
+            var path_itr = std.mem.tokenizeScalar(u8, path, '/');
+            if (path_itr.peek() != null and !std.mem.eql(u8, path_itr.next().?, "dashboard")) {
+                print("{s}{s}Accepted connection from:{s} {} {s} {s}\n", .{ red, bold, reset, conn.address, method, path });
+                // servers.server_stats.incrementActCount();
+                servers.server_stats.incrementReqCount();
+            }
 
-        var path_itr = std.mem.tokenizeScalar(u8, path, '/');
-        if (path_itr.peek() != null and !std.mem.eql(u8, path_itr.next().?, "dashboard")) {
-            print("{s}{s}Accepted connection from:{s} {} {s} {s}\n", .{ red, bold, reset, conn.address, method, path });
-            // servers.server_stats.incrementActCount();
-            servers.server_stats.incrementReqCount();
-        }
+            try ctx.setJson(recv_data);
+            try ctx.setPayload(recv_data);
+            const callRouteErr = nimbus.callRoute(path, method, &ctx);
+            try ctx.deinit();
 
-        try ctx.setJson(recv_data);
-        const callRouteErr = nimbus.callRoute(path, method, &ctx);
-        try ctx.deinit();
-
-        if (callRouteErr == error.MethodNotSupported) {
-            _ = try conn.stream.write(helpers.http404());
-            conn.stream.close();
-        } else if (callRouteErr == error.ConnectionRefused) {
-            _ = try conn.stream.write(helpers.http401());
-            conn.stream.close();
+            if (callRouteErr == error.MethodNotSupported) {
+                _ = try conn.stream.write(helpers.http404());
+                conn.stream.close();
+            } else if (callRouteErr == error.ConnectionRefused) {
+                _ = try conn.stream.write(helpers.http500());
+                conn.stream.close();
+            }
+        } else |err| {
+            std.debug.print("error in accept: {}\n", .{err});
         }
-        // else {
-        //     _ = try conn.stream.write(helpers.http400());
-        //     conn.stream.close();
-        // }
-    } else |err| {
-        std.debug.print("error in accept: {}\n", .{err});
     }
 }

@@ -4,6 +4,7 @@ const mem = std.mem;
 const testing = std.testing;
 const crypto = std.crypto;
 const fmt = std.fmt;
+const print = std.debug.print;
 
 const ServerError = error{
     HeaderMalformed,
@@ -29,10 +30,17 @@ const Header = enum {
     Host,
     @"User-Agent",
     Cookie,
+    @"Content-Type",
 };
 
 const HeaderCookie = enum {
     Cookie,
+};
+
+pub const ContentType = enum {
+    None,
+    Form,
+    JSON,
 };
 
 const HTTPHeader = struct {
@@ -42,6 +50,7 @@ const HTTPHeader = struct {
     cookie: []const u8,
     cookies: std.ArrayList([]const u8),
     method: []const u8,
+    content_type: ContentType,
 
     pub fn init() !HTTPHeader {
         return HTTPHeader{
@@ -51,6 +60,7 @@ const HTTPHeader = struct {
             .cookie = undefined,
             .cookies = std.ArrayList([]const u8).init(std.heap.c_allocator),
             .method = undefined,
+            .content_type = ContentType.None,
         };
     }
 
@@ -133,15 +143,17 @@ pub fn parsePath(request_line: []const u8) ![]const u8 {
     return path;
 }
 
-pub fn parseHeader(header: []const u8) !HTTPHeader {
+pub fn parseHeader(http_payload: []const u8) !HTTPHeader {
     var header_struct = try HTTPHeader.init();
+    var req_parts = mem.tokenizeSequence(u8, http_payload, "\r\n\r\n");
+    const header = req_parts.next().?;
     var header_itr = mem.tokenizeSequence(u8, header, "\r\n");
     header_struct.request_line = header_itr.next() orelse return ServerError.HeaderMalformed;
 
     // var cookies = std.ArrayList([]const u8).init(std.heap.c_allocator);
     while (header_itr.next()) |line| {
         const name_slice = mem.sliceTo(line, ':');
-        if (name_slice.len == line.len) return ServerError.HeaderMalformed;
+        // if (name_slice.len == line.len) return ServerError.HeaderMalformed;
         const header_name = std.meta.stringToEnum(Header, name_slice) orelse continue;
         const header_value = mem.trimLeft(u8, line[name_slice.len + 1 ..], " ");
         switch (header_name) {
@@ -156,6 +168,13 @@ pub fn parseHeader(header: []const u8) !HTTPHeader {
                     }
                 }
                 header_struct.cookie = header_value;
+            },
+            .@"Content-Type" => {
+                if (mem.eql(u8, header_value, "application/json")) {
+                    header_struct.content_type = ContentType.JSON;
+                } else if (mem.eql(u8, header_value, "application/x-www-form-urlencoded")) {
+                    header_struct.content_type = ContentType.Form;
+                }
             },
         }
     }
@@ -183,6 +202,33 @@ pub fn matchDataType(path: []const u8) ![]const u8 {
     return path_type.?;
 }
 
+pub fn httpProtocolNotSupported() []const u8 {
+    return "HTTP/1.1 505 PROTO NOT SUPPORTED \r\n" ++
+        "Connection: close\r\n" ++
+        "Content-Type: text/html; charset=utf8\r\n" ++
+        "Content-Length: 9\r\n" ++
+        "\r\n" ++
+        "Protocol Not Supported";
+}
+
+pub fn httpRequestNotSupported() []const u8 {
+    return "HTTP/1.1 405 REQ NOT SUPPORTED \r\n" ++
+        "Connection: close\r\n" ++
+        "Content-Type: text/html; charset=utf8\r\n" ++
+        "Content-Length: 9\r\n" ++
+        "\r\n" ++
+        "Request Not Supported";
+}
+
+pub fn httpHeaderMalformed() []const u8 {
+    return "HTTP/1.1 400 HEADER MALFORMED \r\n" ++
+        "Connection: close\r\n" ++
+        "Content-Type: text/html; charset=utf8\r\n" ++
+        "Content-Length: 16\r\n" ++
+        "\r\n" ++
+        "Header Malformed";
+}
+
 pub fn http404() []const u8 {
     return "HTTP/1.1 404 NOT FOUND \r\n" ++
         "Connection: close\r\n" ++
@@ -202,7 +248,16 @@ pub fn http401() []const u8 {
 }
 
 pub fn http400() []const u8 {
-    return "HTTP/1.1 401 NOT FOUND \r\n" ++
+    return "HTTP/1.1 400 NOT FOUND \r\n" ++
+        "Connection: close\r\n" ++
+        "Content-Type: text/html; charset=utf8\r\n" ++
+        "Content-Length: 21\r\n" ++
+        "\r\n" ++
+        "Internal Server Error";
+}
+
+pub fn http500() []const u8 {
+    return "HTTP/1.1 500 SERVER ERROR \r\n" ++
         "Connection: close\r\n" ++
         "Content-Type: text/html; charset=utf8\r\n" ++
         "Content-Length: 21\r\n" ++
@@ -231,12 +286,6 @@ pub fn http201(_: []const u8) ![]const u8 {
         .{},
     );
     return response;
-    // return "HTTP/1.1 200 Success \r\n" ++
-    //     "Connection: close\r\n" ++
-    //     "Content-Type: text/html; charset=utf8\r\n" ++
-    //     "Content-Length: 12\r\n" ++
-    //     "\r\n" ++
-    //     "Added a user";
 }
 
 pub fn httpJsonMalformed() []const u8 {

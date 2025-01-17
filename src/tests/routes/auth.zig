@@ -7,6 +7,7 @@ const CredentialsReq = @import("../models.zig").CredentialsReq;
 const Auth = @import("../../auth/index.zig");
 const User = @import("../models.zig").User;
 const cache = @import("../data/index.zig");
+const nimbus_cache = @import("../init/index.zig");
 const session_utils = @import("../../session_utils/index.zig");
 
 pub fn createCacheSession(next: HandlerFunc, _: *Context) !HandlerFunc {

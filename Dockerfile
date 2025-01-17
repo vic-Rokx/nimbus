@@ -20,4 +20,4 @@ FROM alpine:latest
 EXPOSE 8080
 
 # Command to run the application using yarn
-CMD ["zig-out/bin/app"]
+CMD ["./zig-out/bin/app"]

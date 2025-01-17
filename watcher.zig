@@ -16,9 +16,10 @@ const bold = "\x1b[1m"; // ANSI escape code to reset color
 pub const Config = struct {
     watch_paths: []const []const u8 = &.{"src"}, // Directories to watch
     build_command: []const []const u8 = &.{ "zig", "build" }, // Default build command
+    make_command: []const []const u8 = &.{"make"}, // Default build command
     run_dev_command: []const []const u8 = &.{ "zig", "run", "src/main.zig" },
     run_command: []const []const u8 = &.{"zig-out/bin/app"}, // Default run command
-    file_extensions: []const []const u8 = &.{".zig"}, // File extensions to watch
+    file_extensions: []const []const u8 = &.{ ".zig", ".html" }, // File extensions to watch
     exclude_dirs: []const []const u8 = &.{ "zig-cache", "zig-out" }, // Directories to ignore
     debounce_ms: u64 = 100,
 };
@@ -73,7 +74,7 @@ const WatchContext = struct {
         try self.killCurrentProcess();
 
         // Execute the run_dev_command (zig run)
-        var child = std.process.Child.init(self.config.run_dev_command, self.allocator);
+        var child = std.process.Child.init(self.config.make_command, self.allocator);
         child.stderr_behavior = .Inherit;
         child.stdout_behavior = .Inherit;
         try child.spawn();

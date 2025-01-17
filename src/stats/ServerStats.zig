@@ -42,6 +42,5 @@ pub fn calculateRPS(self: *ServerStats) void {
     if (elapsed_ms == 0) return; // Avoid division by zero
     const elapsed_seconds = @divTrunc(elapsed_ms, 1000);
     if (elapsed_seconds == 0) return; // Avoid division by zero
-    std.debug.print("Seconds passed {d}\n", .{elapsed_seconds});
     self.requests_per_sec = @divTrunc(self.requests_total, elapsed_seconds);
 }

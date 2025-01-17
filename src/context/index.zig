@@ -4,8 +4,20 @@ const mem = std.mem;
 const Parsed = std.json.Parsed;
 const helpers = @import("../helpers/index.zig");
 const Cookie = @import("../core/Cookie.zig");
+const TLSStruct = @import("../tls/tlsserver.zig");
+const TLSServer = TLSStruct.TlsServer;
+const print = std.debug.print;
 
 pub const json_type = []const u8;
+
+pub const CtxWriter = struct {
+    pub fn tlsWrite(ssl: TLSStruct.SSL, resp: []const u8) void {
+        TLSStruct.tlsWrite(ssl, resp);
+    }
+    pub fn httpWrite(conn: net.Server.Connection, resp: []const u8) !void {
+        _ = try conn.stream.write(resp);
+    }
+};
 
 pub const Self = @This();
 arena: std.mem.Allocator,
@@ -16,14 +28,23 @@ method: []const u8,
 route: []const u8,
 headers: std.StringHashMap([]const u8),
 json_payload: []const u8,
-payload: []u8,
-conn: net.Server.Connection,
+payload: []const u8,
+content_type: helpers.ContentType,
+conn: ?net.Server.Connection,
+ssl: ?TLSStruct.SSL,
 cookies: std.StringHashMap(Cookie),
 cookie: ?Cookie,
 setValues: std.StringHashMap([]const u8),
 sticky_session: ?[]const u8,
 
-pub fn init(arena: *mem.Allocator, method: []const u8, route: []const u8, conn: net.Server.Connection) !Self {
+pub fn init(
+    arena: *mem.Allocator,
+    method: []const u8,
+    route: []const u8,
+    conn: ?net.Server.Connection,
+    ssl: ?TLSStruct.SSL,
+    content_type: helpers.ContentType,
+) !Self {
     return Self{
         .arena = arena.*,
         .method = method,
@@ -34,7 +55,9 @@ pub fn init(arena: *mem.Allocator, method: []const u8, route: []const u8, conn: 
         .headers = std.StringHashMap([]const u8).init(arena.*),
         .json_payload = undefined,
         .payload = undefined,
+        .content_type = content_type,
         .conn = conn,
+        .ssl = ssl,
         .cookies = std.StringHashMap(Cookie).init(arena.*),
         .cookie = null,
         .setValues = std.StringHashMap([]const u8).init(arena.*),
@@ -83,6 +106,10 @@ pub fn addParam(self: *Self, key: []const u8, value: []const u8) !void {
     try self.params.put(key, value);
 }
 
+pub fn addFormParam(self: *Self, key: []const u8, value: []const u8) !void {
+    try self.form_params.put(key, value);
+}
+
 fn generateCookieString(self: *Self) !std.RingBuffer {
     var cookies_itr = self.cookies.keyIterator();
     var builder: std.RingBuffer = try std.RingBuffer.init(self.arena, 1024);
@@ -127,7 +154,11 @@ pub fn ERROR(self: *Self, status_code: u16, string: []const u8) !void {
                 string,
             },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     } else {
         const stt = "HTTP/1.1 {d} NOT FOUND \r\n" ++
@@ -141,7 +172,11 @@ pub fn ERROR(self: *Self, status_code: u16, string: []const u8) !void {
             stt,
             .{ status_code, string.len, string },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     }
 }
@@ -168,7 +203,11 @@ pub fn STRING(self: *Self, string: []const u8) !void {
                 string,
             },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     } else {
         const stt = "HTTP/1.1 200 Success \r\n" ++
@@ -182,7 +221,11 @@ pub fn STRING(self: *Self, string: []const u8) !void {
             stt,
             .{ string.len, string },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     }
 }
@@ -215,7 +258,11 @@ pub fn JSON(self: *Self, comptime T: type, data: T) !void {
                 string.items,
             },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     } else {
         const stt = "HTTP/1.1 200 Success \r\n" ++
@@ -230,7 +277,11 @@ pub fn JSON(self: *Self, comptime T: type, data: T) !void {
             stt,
             .{ string.items.len, string.items },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     }
 }
@@ -260,7 +311,11 @@ pub fn HTML(self: *Self, html: []const u8) !void {
                 html,
             },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     } else {
         const stt = "HTTP/1.1 200 Success \r\n" ++
@@ -278,7 +333,11 @@ pub fn HTML(self: *Self, html: []const u8) !void {
                 html,
             },
         ) catch unreachable;
-        _ = try self.conn.stream.write(response);
+        if (self.ssl != null) {
+            CtxWriter.tlsWrite(self.ssl.?, response);
+        } else {
+            try CtxWriter.httpWrite(self.conn.?, response);
+        }
         self.arena.free(response);
     }
 }
@@ -320,6 +379,55 @@ pub fn setJson(self: *Self, haystack: []const u8) !void {
     } + 4; // Skip the "\r\n\r\n"
     const json_payload = haystack[payload_start..];
     self.json_payload = json_payload;
+}
+
+pub fn setPayload(self: *Self, haystack: []const u8) !void {
+    const payload_start = std.mem.indexOf(u8, haystack, "\r\n\r\n") orelse {
+        std.debug.print("Failed to find payload start.\n", .{});
+        return error.PostFailed;
+    } + 4; // Skip the "\r\n\r\n"
+    const payload = haystack[payload_start..];
+    self.payload = payload;
+}
+
+fn decoder(self: *Self, encoded: []const u8) ![]const u8 {
+    var decoded = std.ArrayList(u8).init(self.arena);
+    defer decoded.deinit();
+
+    var i: usize = 0;
+    while (i < encoded.len) : (i += 1) {
+        if (encoded[i] == '%') {
+            // Ensure there's enough room for two hex characters
+            if (i + 2 >= encoded.len) {
+                return error.InvalidInput;
+            }
+
+            const hex = encoded[i + 1 .. i + 3];
+            const decodedByte = try std.fmt.parseInt(u8, hex, 16);
+            try decoded.append(decodedByte);
+            i += 2; // Skip over the two hex characters
+        } else if (encoded[i] == '+') {
+            // Replace '+' with a space
+            try decoded.append(' ');
+        } else {
+            try decoded.append(encoded[i]);
+        }
+    }
+
+    return decoded.toOwnedSlice();
+}
+
+pub fn parseForm(self: *Self) !void {
+    if (self.content_type != helpers.ContentType.Form) return error.Malformed;
+    var header_itr = mem.tokenizeSequence(u8, self.payload, "\r\n");
+    while (header_itr.next()) |line| {
+        const form_key = mem.sliceTo(line, '=');
+        print("\n{s}", .{form_key});
+        const form_value = mem.trimLeft(u8, line[form_key.len + 1 ..], " ");
+        const form_decoded_value = try self.decoder(form_value);
+        print("\n{s}", .{form_decoded_value});
+        try self.addFormParam(form_key, form_decoded_value);
+    }
 }
 
 // TODO figure what the hell is wrong with struct fields set to []const u8,

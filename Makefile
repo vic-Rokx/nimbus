@@ -11,12 +11,15 @@ build:
 
 # Build the Zig PGSQL 
 buildpgsql:
-	$(ZIG) build-exe ./src/main.zig -I/opt/homebrew/opt/libpq/include -L/opt/homebrew/opt/libpq/lib -lpq
+	$(ZIG) build-exe -I./src/tls -I/opt/homebrew/opt/libpq/include -I/opt/homebrew/opt/openssl@3/include \
+                 -L/opt/homebrew/opt/libpq/lib -L/opt/homebrew/opt/openssl@3/lib \
+                 ./src/main.zig ./src/tls/tlsserver.c -lpq -lssl -lcrypto -lc
  
 
 # Run the built executable
+# ./zig-out/bin/app
 run:
-	./zig-out/bin/app
+	./main
 
 # Clean up the built executable
 clean:
